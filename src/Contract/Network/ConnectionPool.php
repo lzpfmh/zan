@@ -1,16 +1,10 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: winglechen
- * Date: 16/4/4
- * Time: 00:44
- */
 
 namespace Zan\Framework\Contract\Network;
 
-
 interface ConnectionPool
 {
+
     /**
      * ConnectionPool constructor.
      * @param \Zan\Framework\Contract\Network\ConnectionFactory $connectionFactory

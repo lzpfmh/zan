@@ -1,21 +1,18 @@
 <?php
 
-/**
- * Created by IntelliJ IDEA.
- * User: winglechen
- * Date: 15/11/9
- * Time: 14:24
- */
-use Zan\Framework\Foundation\Coroutine\SysCall;
-use Zan\Framework\Foundation\Coroutine\Task;
-use Zan\Framework\Foundation\Coroutine\Signal;
 use Zan\Framework\Foundation\Contract\Resource;
 use Zan\Framework\Foundation\Coroutine\Parallel;
+use Zan\Framework\Foundation\Coroutine\Signal;
+use Zan\Framework\Foundation\Coroutine\SysCall;
+use Zan\Framework\Foundation\Coroutine\Task;
+use Zan\Framework\Network\Http\Cookie;
+use Zan\Framework\Network\Server\Timer\Timer;
+use Zan\Framework\Network\Tcp\RpcContext;
 
 function taskSleep($ms)
 {
     return new SysCall(function (Task $task) use ($ms) {
-        \Zan\Framework\Network\Server\Timer\Timer::after($ms, function() use ($task) {
+        Timer::after($ms, function () use ($task) {
             $task->send(null);
             $task->run();
         });
@@ -27,10 +24,31 @@ function taskSleep($ms)
 function newTask(\Generator $gen = null)
 {
     return new SysCall(function (Task $task) use ($gen) {
-        $task->send(null);
+        $context = $task->getContext();
+        Task::execute($gen, $context, 0, $task);
 
+        $task->send(null);
         return Signal::TASK_CONTINUE;
     });
+}
+
+function go(\Generator $coroutine)
+{
+    return newTask($coroutine);
+}
+
+function defer(callable $callback)
+{
+
+}
+
+function deferRelease(Resource $res, $stradegy = Resource::AUTO_RELEASE)
+{
+}
+
+function release(Resource $res, $stradegy = Resource::AUTO_RELEASE)
+{
+
 }
 
 function killTask()
@@ -45,6 +63,35 @@ function getTaskId()
     return new SysCall(function (Task $task) {
         $task->send($task->getTaskId());
 
+        return Signal::TASK_CONTINUE;
+    });
+}
+
+function getRpcContext($key = null, $default = null)
+{
+    return new SysCall(function (Task $task) use($key, $default) {
+        $context = $task->getContext();
+        $rpcCtx = $context->get(RpcContext::KEY, null, RpcContext::class);
+        if ($rpcCtx) {
+            $task->send($rpcCtx->get($key, $default));
+        } else {
+            $task->send($default);
+        }
+
+        return Signal::TASK_CONTINUE;
+    });
+}
+
+function setRpcContext($key, $value)
+{
+    return new SysCall(function (Task $task) use ($key, $value) {
+        $context = $task->getContext();
+        $rpcCtx = $context->get(RpcContext::KEY, null, RpcContext::class);
+        if ($rpcCtx === null) {
+            $rpcCtx = new RpcContext;
+            $context->set(RpcContext::KEY, $rpcCtx);
+        }
+        $task->send($rpcCtx->set($key, $value));
         return Signal::TASK_CONTINUE;
     });
 }
@@ -117,19 +164,17 @@ function parallel($coroutines)
     });
 }
 
-function defer(callable $callback)
+function async(callable $callback)
 {
+    return new SysCall(function (Task $task) use ($callback) {
+        $context = $task->getContext();
+        $queue = $context->get('async_task_queue', []);
+        $queue[] = $callback;
+        $context->set('async_task_queue', $queue);
+        $task->send(null);
 
-}
-
-function deferRelease(Resource $res, $stradegy = Resource::AUTO_RELEASE)
-{
-
-}
-
-function release(Resource $res, $stradegy = Resource::AUTO_RELEASE)
-{
-
+        return Signal::TASK_CONTINUE;
+    });
 }
 
 function getCookieHandler()
@@ -161,10 +206,9 @@ function cookieSet($key, $value = null, $expire = 0, $path = null, $domain = nul
     $args = func_get_args();
     return new SysCall(function (Task $task) use ($args) {
         $context = $task->getContext();
+        /** @var Cookie $cookie */
         $cookie = $context->get('cookie');
-        $func = [$cookie, 'set'];
-
-        $ret = call_user_func_array($func, $args);
+        $ret = $cookie->set(...$args);
         $task->send($ret);
 
         return Signal::TASK_CONTINUE;
@@ -192,31 +236,3 @@ function getServerHandler()
         return Signal::TASK_CONTINUE;
     });
 }
-
-function getRequestUri($exclude='', $params=false){
-    return new SysCall(function (Task $task) use ($exclude,$params) {
-        $context = $task->getContext();
-        $request = $context->get('request');
-        $uri = $request->server->get('REQUEST_URI');
-        $host = $request->server->get('HTTP_HOST');
-        $request_uri = $host . $uri;
-        if($exclude) {
-            $request_uri = preg_replace($exclude, '', $request_uri);
-        }
-
-        $pPos   = strpos($request_uri,'?');
-        if(false === $params){
-            if(false !== $pPos){
-                $request_uri = substr($request_uri,0,$pPos);
-            }
-        }
-
-        if(false !== $params && !$pPos){
-            $request_uri .= '?';
-        }
-        $task->send($request_uri);
-        return Signal::TASK_CONTINUE;
-    });
-}
-
-

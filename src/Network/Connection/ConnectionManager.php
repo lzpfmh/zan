@@ -1,23 +1,17 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Network\Connection;
 
+
+use Zan\Framework\Contract\Network\Connection;
+use Zan\Framework\Foundation\Core\Condition;
+use Zan\Framework\Foundation\Core\Config;
+use Zan\Framework\Foundation\Exception\ConditionException;
 use Zan\Framework\Foundation\Exception\System\InvalidArgumentException;
+use Zan\Framework\Network\Connection\Exception\CanNotCreateConnectionException;
+use Zan\Framework\Network\Connection\Exception\ConnectTimeoutException;
+use Zan\Framework\Network\Connection\Exception\GetConnectionTimeoutFromPool;
+use Zan\Framework\Network\Server\Timer\Timer;
 use Zan\Framework\Utilities\DesignPattern\Singleton;
 
 class ConnectionManager
@@ -25,43 +19,110 @@ class ConnectionManager
 
     use Singleton;
 
+    /**
+     * @var Pool[]
+     */
     private static $poolMap = [];
+
+    /**
+     * @var PoolEx[]
+     */
+    private static $poolExMap = [];
 
     private static $server;
 
-    public function __construct()
-    {
-    }
+    public static $getPoolEvent = "getPoolEvent";
+
     /**
      * @param string $connKey
-     * @param int $timeout
-     * @return \Zan\Framework\Contract\Network\Connection 
-     * @throws InvalidArgumentException
+     * @return \Zan\Framework\Contract\Network\Connection
+     * @throws InvalidArgumentException | CanNotCreateConnectionException | ConnectTimeoutException
      */
-    public function get($connKey, $timeout=0)
+    public function get($connKey)
     {
-        if(!isset(self::$poolMap[$connKey])){
-            throw new InvalidArgumentException('No such ConnectionPool:'. $connKey);
-        }     
-        $pool = self::$poolMap[$connKey];
-        $connection = $pool->get();
-        if($connection){
-            yield $connection;
-            return;
+        while (!isset(self::$poolMap[$connKey]) && !isset(self::$poolExMap[$connKey])) {
+            try {
+                yield new Condition(static::$getPoolEvent, 300);
+            } catch (ConditionException $e) {
+                sys_error($e->getMessage());
+            }
         }
-        yield new FutureConnection($this, $connKey, $timeout);
+
+        if (isset(self::$poolExMap[$connKey])) {
+            yield $this->getFromPoolEx($connKey);
+        } else if(isset(self::$poolMap[$connKey])){
+            yield $this->getFromPool($connKey);
+        } else {
+            throw new InvalidArgumentException('No such ConnectionPool:'. $connKey);
+        }
+    }
+
+    private function getFromPool($connKey)
+    {
+        $pool = self::$poolMap[$connKey];
+
+        $conf = $pool->getPoolConfig();
+        $maxWaitNum = $conf['pool']['maximum-wait-connection'];
+        if ($pool->waitNum > $maxWaitNum) {
+            throw new CanNotCreateConnectionException("Connection $connKey has up to the maximum waiting connection number");
+        }
+
+        $connection = (yield $pool->get());
+
+        if ($connection instanceof Connection) {
+            yield $connection;
+        } else {
+            yield new FutureConnection($this, $connKey, $conf["connect_timeout"], $pool);
+        }
+    }
+
+    private function getFromPoolEx($connKey)
+    {
+        $pool = self::$poolExMap[$connKey];
+        $connection = (yield $pool->get());
+
+        if ($connection instanceof Connection) {
+            yield $connection;
+        } else {
+            throw new GetConnectionTimeoutFromPool("get connection $connKey timeout");
+        }
     }
 
     /**
      * @param $poolKey
-     * @param Pool $pool
+     * @param Pool|PoolEx $pool
+     * @throws InvalidArgumentException
      */
-    public function addPool($poolKey, Pool $pool)
+    public function addPool($poolKey, $pool)
     {
-        self::$poolMap[$poolKey] = $pool;
+        if ($pool instanceof Pool) {
+            self::$poolMap[$poolKey] = $pool;
+        } else if ($pool instanceof PoolEx) {
+            self::$poolExMap[$poolKey] = $pool;
+        } else {
+            throw new InvalidArgumentException("invalid pool type, poolKey=$poolKey");
+        }
     }
 
-    public function setServer($server) {
+    public function monitor()
+    {
+        Timer::tick(30 * 1000, function() {
+            foreach (self::$poolExMap as $poolKey => $pool) {
+                $info = $pool->getStatInfo();
+                $all = $info["all"];
+                $free = $info["free"];
+                sys_echo("pool_ex info [type=$poolKey, all=$all, free=$free]");
+            };
+        });
+    }
+
+    public function setServer($server)
+    {
         self::$server = $server;
+    }
+
+    public function monitorConnectionNum()
+    {
+        MonitorConnectionNum::getInstance()->controlLinkNum(self::$poolMap);
     }
 }

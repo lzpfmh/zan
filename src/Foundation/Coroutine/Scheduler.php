@@ -3,8 +3,6 @@
 namespace Zan\Framework\Foundation\Coroutine;
 
 use Zan\Framework\Foundation\Contract\Async;
-use Zan\Framework\Network\Exception\ServerTimeoutException;
-use Zan\Framework\Utilities\Types\Time;
 
 class Scheduler
 {
@@ -50,10 +48,15 @@ class Scheduler
         return $this->stack->isEmpty();
     }
 
-    public function throwException($e, $isFirstCall = false)
+    public function throwException($e, $isFirstCall = false, $isAsync = false)
     {
         if ($this->isStackEmpty()) {
-            $this->task->getCoroutine()->throw($e);
+            $parent = $this->task->getParentTask();
+            if (null !== $parent && $parent instanceof Task) {
+                $parent->sendException($e);
+            } else {
+                $this->task->getCoroutine()->throw($e);
+            }
             return;
         }
 
@@ -67,25 +70,34 @@ class Scheduler
             $this->task->setCoroutine($coroutine);
             $coroutine->throw($e);
 
-            $this->task->run();
-        }catch (\Exception $e){
-            $this->throwException($e);
+            if ($isAsync) {
+                $this->task->run();
+            }
+        } catch (\Throwable $t){
+            $this->throwException($t, false, $isAsync);
+        } catch (\Exception $e){
+            $this->throwException($e, false, $isAsync);
         }
     }
 
-    //TODO: 规范化response
     public function asyncCallback($response, $exception = null)
     {
-        if ($exception !== null
-            && $exception instanceof \Exception) {
-                $this->throwException($exception, true);
+        // 兼容PHP7 & PHP5
+        if ($exception instanceof \Throwable || $exception instanceof \Exception) {
+            $this->throwException($exception, true, true);
+
+            if (Signal::TASK_DONE == $this->task->getStatus()) {
+                return ;
+            }
         } else {
+            if (Signal::TASK_DONE == $this->task->getStatus()) {
+                return ;
+            }
             $this->task->send($response);
             $this->task->run();
         }
     }
 
-    //TODO:  move handlers out of this class
     private function handleSysCall($value)
     {
         if (!($value instanceof SysCall)
@@ -121,7 +133,8 @@ class Scheduler
             return null;
         }
 
-        $value->execute([$this, 'asyncCallback']);
+        /** @var $value Async */
+        $value->execute([$this, 'asyncCallback'], $this->task);
 
         return Signal::TASK_WAIT;
     }

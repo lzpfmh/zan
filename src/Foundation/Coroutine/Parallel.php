@@ -2,6 +2,7 @@
 
 namespace Zan\Framework\Foundation\Coroutine;
 
+use Zan\Framework\Foundation\Exception\ParallelException;
 use Zan\Framework\Foundation\Exception\System\InvalidArgumentException;
 
 class Parallel
@@ -9,6 +10,7 @@ class Parallel
     private $task;
     private $childTasks = [];
     private $sendValues = [];
+    private $exceptions = [];
 
     public function __construct(Task $task)
     {
@@ -36,12 +38,16 @@ class Parallel
                 continue; 
             }
 
-            $childTask = new Task($coroutine, $taskContext, 0, $parentTaskId);
+            $childTask = new Task($this->catchException($key, $coroutine), $taskContext, 0, $this->task);
             $this->childTasks[$key] = $childTask;
 
             $newTaskId = $childTask->getTaskId();
             $evtName = 'task_event_' . $newTaskId;
             $eventChain->before($evtName, $taskDoneEventName);
+        }
+
+        if ($this->childTasks == []) {
+            $event->fire($taskDoneEventName);
         }
         
         foreach ($this->childTasks as $childTask){
@@ -51,11 +57,42 @@ class Parallel
 
     public function done()
     {
+        $event = $this->task->getContext()->getEvent();
+        $eventChain = $event->getEventChain();
+        $parentTaskId = $this->task->getTaskId();
+        $taskDoneEventName = 'parallel_task_done_' . $parentTaskId;
+
         foreach ($this->childTasks as $key => $childTask) {
             $this->sendValues[$key] = $childTask->getResult();
+
+            $newTaskId = $childTask->getTaskId();
+            $evtName = 'task_event_' . $newTaskId;
+            $eventChain->breakChain($evtName, $taskDoneEventName);
         }
 
-        $this->task->send($this->sendValues);
-        $this->task->run();
+        $event->unregister($taskDoneEventName);
+
+        if (empty($this->exceptions)) {
+            $this->task->send($this->sendValues);
+            $this->task->run();
+        } else {
+            $ex = ParallelException::makeWithResult($this->sendValues, $this->exceptions);
+            $this->task->getCoroutine()->throw($ex);
+            $this->task->run();
+        }
+    }
+
+    private function catchException($key, \Generator $coroutine)
+    {
+        try {
+            yield $coroutine;
+            return;
+        } catch (\Throwable $t) {
+            $ex = t2ex($t);
+        } catch (\Exception $ex) { }
+
+            echo_exception($ex);
+            $this->exceptions[$key] = $ex;
+            yield $ex;
     }
 }

@@ -1,42 +1,33 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 namespace Zan\Framework\Utilities\Types;
 
 class Date
 {
-    private $timeStamp = null;
-    public function __construct($timeStamp=null)
+    private $timestamp = null;
+
+    public function __construct($timestamp = null)
     {
-        if(null !== $timeStamp && is_int($timeStamp)) {
-            $this->timeStamp = $timeStamp;
+        if (null !== $timestamp && is_int($timestamp)) {
+            $this->timestamp = $timestamp;
             return true;
         }
 
-        $this->timeStamp = time();
+        $this->timestamp = time();
     }
 
     public function isToday()
     {
-
+        return date('Ymd', $this->timestamp) == date('Ymd', strtotime('today'));
     }
 
     public function isYesterday()
     {
+        return date('Ymd', $this->timestamp) == date('Ymd', strtotime('yesterday'));
+    }
 
+    public function isTomorrow()
+    {
+        return date('Ymd', $this->timestamp) == date('Ymd', strtotime('tomorrow'));
     }
 
 }

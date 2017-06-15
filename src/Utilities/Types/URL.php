@@ -1,24 +1,8 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 namespace Zan\Framework\Utilities\Types;
 
 use Zan\Framework\Foundation\Exception\System\InvalidArgumentException;
 use Zan\Framework\Network\Http\Response\RedirectResponse;
-use Zan\Framework\Sdk\Cdn\Qiniu;
 
 class URL
 {
@@ -26,10 +10,10 @@ class URL
     const SCHEME_HTTP = 'http';
     const SCHEME_HTTPS = 'https';
 
-    private static $schemes = array(
+    private static $schemes = [
         self::SCHEME_HTTP,
         self::SCHEME_HTTPS,
-    );
+    ];
 
     private static $config;
 
@@ -89,7 +73,7 @@ class URL
         $fragment = isset($urlAnalysis['fragment']) ? '#' . $urlAnalysis['fragment'] : '';
 
         if (!empty($host)) {
-            $scheme = isset($urlAnalysis['scheme']) ? $urlAnalysis['scheme'] : '';
+            $scheme = isset($urlAnalysis['scheme']) ? $urlAnalysis['scheme'] : self::SCHEME_HTTPS;
             if (!self::_checkScheme($scheme)) {
                 throw new InvalidArgumentException('Invalid url for URL::site');
             }
@@ -103,48 +87,9 @@ class URL
         return $url;
     }
 
-
-    /**
-     * This method returns cdn url.
-     *
-     * @param $url
-     * @param $imgExt
-     * @param $scheme
-     * @param $removeImgExt
-     * @return string
-     * @throws InvalidArgumentException
-     */
-    public static function cdnSite($url, $imgExt = null, $scheme = false, $removeImgExt = false)
+    public static function removeParams($ps=null, $url=null)
     {
-        if (false !== $scheme && !self::_checkScheme($scheme)) {
-            throw new InvalidArgumentException('Invalid scheme for URL::cdnSite');
-        }
-
-        if ($removeImgExt && ($pos = strrpos($url, '!'))) {
-            $url = substr($url, 0, $pos);
-        }
-
-        //todo imgqn 配置化
-        $url = self::site((strlen($url) ? $url . $imgExt : 'upload_files/no_pic.png!280x280.jpg'), 'imgqn', $scheme);
-
-        if (!preg_match('~^(https?://static\.|static\.|dn-kdt-static\.qbox\.me|https?://dn-kdt-static\.qbox\.me)~s', $url)) {
-            $url = Qiniu::site($url);
-        }
-
-        return self::_convertWebp($url);
-    }
-
-    public static function getRequestUri($exclude='', $params=false)
-    {
-        yield getRequestUri($exclude,$params);
-    }
-
-    public static function removeParams($ps=null,$url=null)
-    {
-        if(null === $url){
-            $url    =  (yield self::getRequestUri('',true));
-        }
-        if(!$ps ){
+        if(!$ps || !$url){
             yield $url;
             return;
         }
@@ -169,7 +114,8 @@ class URL
         yield $prefix . '?' . http_build_query($pMap);
     }
 
-    public static function redirect($url,$code=302){
+    public static function redirect($url,$code=302)
+    {
         return  new RedirectResponse($url,$code);
     }
 
@@ -184,27 +130,17 @@ class URL
         return in_array($scheme, self::$schemes);
     }
 
-    /**
-     * cdn url convert to webp
-     *
-     * @param $imgSrc
-     * @param $canWebp
-     * @return string
-     */
-    private static function _convertWebp($imgSrc, $canWebp = false)
+    public static function parseUrl($url)
     {
-        $multiple = 1;
-        $pattern = '/\.([^.!]+)\!([0-9]{1,4})x([0-9]{1,4})(\+2x)?\.(.*)/';
-        preg_match($pattern, $imgSrc, $matches);
-        if ($matches && count($matches) >= 4) {
-            if ('+2x' == $matches[4]) {
-                $multiple = 2;
-            }
-            $extName = strtolower($matches[1]);
-            $imgSrc = preg_replace($pattern, '.', $imgSrc) . $matches[1] . '?imageView2/2/w/' . (int)$matches[2] * $multiple . '/h/' . (int)$matches[3] * $multiple . '/q/75/format/' . ($canWebp ? ($extName == 'gif' ? 'gif' : 'webp') : $extName);
+        $result = parse_url($url);
+        $result['path'] = isset($result['path']) ? ltrim($result['path'], '/v2/') : '';
+        if(isset($result['query'])) {
+            parse_str($result['query'], $result['query']);
+        }else{
+            $result['query'] = [];
         }
-
-        return $imgSrc;
+        $result['fragment'] = isset($result['fragment']) ? $result['fragment'] : [];
+        return $result;
     }
 
 }

@@ -1,20 +1,13 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: winglechen
- * Date: 15/11/9
- * Time: 13:37
- */
 
 namespace Zan\Framework\Foundation\Coroutine;
 
-use Doctrine\Instantiator\Exception\InvalidArgumentException;
 use Zan\Framework\Utilities\DesignPattern\Context;
 
 class Task
 {
     protected $taskId = 0;
-    protected $parentId = 0;
+    protected $parentTask;
     protected $coroutine = null;
     protected $context = null;
 
@@ -22,10 +15,10 @@ class Task
     protected $scheduler = null;
     protected $status = 0;
 
-    public static function execute($coroutine, Context $context=null, $taskId=0, $parentId=0)
+    public static function execute($coroutine, Context $context = null, $taskId = 0, Task $parentTask = null)
     {
-        if($coroutine instanceof \Generator) {
-            $task = new Task($coroutine, $context, $taskId, $parentId);
+        if ($coroutine instanceof \Generator) {
+            $task = new Task($coroutine, $context, $taskId, $parentTask);
             $task->run();
 
             return $task;
@@ -34,11 +27,11 @@ class Task
         return $coroutine;
     }
 
-    public function __construct(\Generator $coroutine, Context $context=null, $taskId=0, $parentId=0)
+    public function __construct(\Generator $coroutine, Context $context = null, $taskId = 0, Task $parentTask = null)
     {
         $this->coroutine = $coroutine;
         $this->taskId = $taskId ? $taskId : TaskId::create();
-        $this->parentId = $parentId;
+        $this->parentTask = $parentTask;
 
         if ($context) {
             $this->context = $context;
@@ -55,6 +48,7 @@ class Task
             try {
                 if ($this->status === Signal::TASK_KILLED) {
                     $this->fireTaskDoneEvent();
+                    $this->status = Signal::TASK_DONE;
                     break;
                 }
                 $this->status = $this->scheduler->schedule();
@@ -65,10 +59,14 @@ class Task
                         return null;
                     case Signal::TASK_WAIT:
                         return null;
-                    case Signal::TASK_DONE;
+                    case Signal::TASK_DONE:
                         $this->fireTaskDoneEvent();
                         return null;
+                    default:
+                        continue;
                 }
+            } catch (\Throwable $t) {
+                $this->scheduler->throwException($t);
             } catch (\Exception $e) {
                 $this->scheduler->throwException($e);
             }
@@ -77,17 +75,19 @@ class Task
 
     public function sendException($e)
     {
-        if ($this->scheduler->isStackEmpty()) {
-            $this->coroutine->throw($e);
-        }
-
         $this->scheduler->throwException($e);
     }
 
     public function send($value)
     {
-        $this->sendValue = $value;
-        return $this->coroutine->send($value);
+        try {
+            $this->sendValue = $value;
+            return $this->coroutine->send($value);
+        } catch (\Throwable $t) {
+            $this->sendException($t);
+        } catch (\Exception $e) {
+            $this->sendException($e);
+        }
     }
 
     public function getTaskId()
@@ -130,8 +130,16 @@ class Task
         $this->coroutine = $coroutine;
     }
 
+    public function getParentTask()
+    {
+        return $this->parentTask;
+    }
+
     public function fireTaskDoneEvent()
     {
+        if (null === $this->context) {
+            return;
+        }
         $evtName = 'task_event_' . $this->taskId;
         $this->context->getEvent()->fire($evtName, $this->sendValue);
     }

@@ -1,19 +1,5 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 namespace Zan\Framework\Network\Server;
 
 use RuntimeException;
@@ -21,31 +7,51 @@ use Zan\Framework\Foundation\Container\Di;
 use Zan\Framework\Foundation\Core\Config;
 use swoole_http_server as SwooleHttpServer;
 use swoole_server as SwooleTcpServer;
+use swoole_websocket_server as SwooleWebSocketServer;
 use Zan\Framework\Network\Http\Server as HttpServer;
 use Zan\Framework\Network\Tcp\Server as TcpServer;
+use Zan\Framework\Network\WebSocket\Server as WebSocketServer;
 
 class Factory
 {
+    private $configName;
+    private $host;
+    private $port;
+    private $serverConfig;
+
+    public function __construct($configName)
+    {
+        $this->configName = $configName;
+    }
+
+    private function validConfig()
+    {
+        $config = Config::get($this->configName);
+        if (empty($config)) {
+            throw new RuntimeException('server config not found');
+        }
+
+        $this->host = $config['host'];
+        $this->port = $config['port'];
+        $this->serverConfig = $config['config'];
+        if (empty($this->host) || empty($this->port)) {
+            throw new RuntimeException('server config error: empty ip/port');
+        }
+
+        // 强制关闭swoole worker自动重启(未考虑请求处理完), 使用zan框架重启机制
+        $this->serverConfig["max_request"] = 0;
+    }
+
     /**
      * @return \Zan\Framework\Network\Http\Server
      */
     public function createHttpServer()
     {
-        $config = Config::get('server');
-        if (empty($config)) {
-            throw new RuntimeException('http server config not found');
-        }
+        $this->validConfig();
 
-        $host = $config['host'];
-        $port = $config['port'];
-        $config = $config['config'];
-        if (empty($host) || empty($port)) {
-            throw new RuntimeException('http server config error: empty ip/port');
-        }
+        $swooleServer = Di::make(SwooleHttpServer::class, [$this->host, $this->port], true);
 
-        $swooleServer = Di::make(SwooleHttpServer::class, [$host, $port], true);
-
-        $server = Di::make(HttpServer::class, [$swooleServer, $config]);
+        $server = Di::make(HttpServer::class, [$swooleServer, $this->serverConfig]);
 
         return $server;
     }
@@ -55,21 +61,31 @@ class Factory
      */
     public function createTcpServer()
     {
-        $config = Config::get('server');
-        if (empty($config)) {
-            throw new RuntimeException('tcp server config not found');
+        $this->validConfig();
+
+        $swooleServer = Di::make(SwooleTcpServer::class, [$this->host, $this->port], true);
+
+        $server = Di::make(TcpServer::class, [$swooleServer, $this->serverConfig]);
+
+        return $server;
+    }
+
+    /**
+     * @return \Zan\Framework\Network\Http\WebSocketServer
+     */
+    public function createWebSocketServer()
+    {
+        $this->validConfig();
+
+        if (isset($this->serverConfig['dispatch_mode'])) {
+            if ($this->serverConfig['dispatch_mode'] == 1 || $this->serverConfig['dispatch_mode'] == 3) {
+                sys_error("dispatch_mode can not be set 1 or 3 in websocket server, change it to default(2)");
+                unset($this->serverConfig['dispatch_mode']);
+            }
         }
+        $swooleServer = Di::make(SwooleWebSocketServer::class, [$this->host, $this->port], true);
 
-        $host = $config['host'];
-        $port = $config['port'];
-        $config = $config['config'];
-        if (empty($host) || empty($port)) {
-            throw new RuntimeException('tcp server config error: empty ip/port');
-        }
-
-        $swooleServer = Di::make(SwooleTcpServer::class, [$host, $port], true);
-
-        $server = Di::make(TcpServer::class, [$swooleServer, $config]);
+        $server = Di::make(WebSocketServer::class, [$swooleServer, $this->serverConfig]);
 
         return $server;
     }

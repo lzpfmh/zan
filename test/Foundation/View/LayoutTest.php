@@ -1,18 +1,9 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
+/**
+ * Created by PhpStorm.
+ * User: chenfan
+ * Date: 16/3/10
+ * Time: 下午10:47
  */
 
 namespace Zan\Framework\Test\Foundation\View;
@@ -46,9 +37,11 @@ class LayoutTest extends \TestCase
 
     public function testBlockAndEndBlock()
     {
+        ob_start();
         $this->layout->block('title');
         echo 'content';
         $this->layout->endBlock('title');
+        ob_get_clean();
 
         $curLevel = $this->getProperty($this->layout, 'curLevel');
         $blockQueue = $this->getProperty($this->layout, 'blockQueue');
@@ -68,7 +61,9 @@ class LayoutTest extends \TestCase
 
     public function testPlace()
     {
+        ob_start();
         $this->layout->place('title', 'content');
+        ob_get_clean();
         $blocks = $this->getProperty($this->layout, 'blocks');
         $blockLevelMap = $this->getProperty($this->layout, 'blockLevelMap');
 
@@ -81,9 +76,11 @@ class LayoutTest extends \TestCase
 
     public function testSuper()
     {
+        ob_start();
         $this->layout->block('title');
         echo 'content';
         $this->layout->endBlock('title');
+        ob_get_clean();
 
         ob_start();
         $this->layout->super('title');

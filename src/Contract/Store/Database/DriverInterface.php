@@ -1,13 +1,6 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: winglechen
- * Date: 16/4/5
- * Time: 20:12
- */
 
 namespace Zan\Framework\Contract\Store\Database;
-
 
 use Zan\Framework\Contract\Network\Connection;
 use Zan\Framework\Foundation\Contract\Async;
@@ -23,19 +16,23 @@ interface DriverInterface extends Async
     public function query($sql);
 
     /**
+     * @param int $flags
      * @return DbResultInterface
+     * @internal param bool $autoHandleException
      */
-    public function beginTransaction();
+    public function beginTransaction($flags = 0);
 
     /**
+     * @param int $flags
      * @return DbResultInterface
      */
-    public function commit();
+    public function commit($flags = 0);
 
     /**
+     * @param int $flags
      * @return DbResultInterface
      */
-    public function rollback();
+    public function rollback($flags = 0);
 
     /**
      * @param $link

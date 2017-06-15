@@ -1,14 +1,9 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: Demon
- * Date: 16/5/19
- * Time: 下午1:55
- */
 
 namespace Zan\Framework\Foundation\Core;
 
 
+use Zan\Framework\Foundation\Exception\System\InvalidArgumentException;
 use Zan\Framework\Utilities\DesignPattern\Singleton;
 use Zan\Framework\Utilities\Types\Dir;
 

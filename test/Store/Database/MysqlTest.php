@@ -1,62 +1,110 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
+/**
+ * Created by IntelliJ IDEA.
+ * User: winglechen
+ * Date: 15/12/18
+ * Time: 17:20
  */
-
-
 namespace Zan\Framework\Test\Store\Database;
+
+use Zan\Framework\Store\Database\Flow;
 use Zan\Framework\Testing\TaskTest;
 use Zan\Framework\Store\Facade\Db;
+
 class MysqlTest extends TaskTest
 {
-    public function testInit()
+    const INSERT_COUNT = 30;
+
+    public function taskCRUD()
     {
-        //sql map
-        //table
-        //connection
+        yield $this->create();
+        yield $this->insert();
+        yield $this->select();
+        yield $this->update();
+        yield $this->delete();
     }
 
-    public function testInsert()
+    private function create()
     {
-        $sid = '';
+        $table = "market_category";
+        $flow = new Flow();
+
+        $sql = "DROP TABLE IF EXISTS $table";
+        yield $flow->queryRaw($table, $sql);
+        $flow = new Flow();
+        $sql = "CREATE TABLE $table (
+          relation_id int(10) unsigned NOT NULL AUTO_INCREMENT,
+          market_id int(10) NOT NULL,
+          goods_id int(10) NOT NULL,
+          PRIMARY KEY (relation_id)
+        ) ENGINE=InnoDB";
+        yield $flow->queryRaw($table, $sql);
+    }
+
+    private function insert()
+    {
+        for ($i = 0; $i < static::INSERT_COUNT; $i++) {
+            $sid = 'market.category.insert';
+            $data = [
+                'insert'=> [
+                    'market_id' => 1111,
+                    'goods_id' => 2222,
+                ],
+            ];
+            $last_insert_id = (yield Db::execute($sid, $data));
+            $this->assertTrue($last_insert_id === $i + 1, "Db insert one column failed");
+        }
+
+        for ($i = 0; $i < static::INSERT_COUNT; $i++) {
+            $sid = 'market.category.insert_multi_rows';
+            $data = [
+                'inserts' => [
+                    [
+                        'market_id' => 1111,
+                        'goods_id' => 2222,
+                    ],
+                    [
+                        'market_id' => 222,
+                        'goods_id' => 333,
+                    ],
+                ],
+            ];
+            $last_insert_id = (yield Db::execute($sid, $data));
+            $this->assertTrue($last_insert_id === static::INSERT_COUNT + 2 * $i + 1, "Db insert multi column failed");
+        }
+
+    }
+
+    public function select()
+    {
+        $sid = 'market.category.all_rows';
         $data = [];
-        $data = (yield Db::execute());
-        $this->assertGreaterThan(0, $data);
+        $result = (yield Db::execute($sid, $data));
+        $this->assertEquals(count($result), 3 * static::INSERT_COUNT, 3 * static::INSERT_COUNT." records excepted");
     }
 
-    public function testSelectOne()
+    public function update()
     {
-        $context = new Context();
-        $job = new SelectJob($context);
-        $sid = 'demo.demo_sql_id1_1';
+        $sid = 'market.category.affected_update_by_id';
         $data = [
-            'var' => ['name' => 'a', 'nick_name' => 'b'],
-            'and' => [
-                ['gender', '=', 1],
+            'data'=> [
+                'market_id' => 12,
             ],
-            'and1' => [
-                ['id_number', '=', 2147483647],
-            ],
-            'limit' => '1'
-
+            'var' => [
+                'goods_id' => 2222
+            ]
         ];
-        $options = [];
-        $job->setSid($sid)->setData($data)->setOptions($options);
-        $coroutine = $job->run();
-        $task = new Task($coroutine);
-        $task->run();
-        $result = $context->show();
+        $result = (yield Db::execute($sid, $data));
+        $this->assertTrue($result === 2 * static::INSERT_COUNT, "Db update failed");
+    }
+
+    public function delete()
+    {
+        $sid = 'market.category.delete_all_rows';
+        $result = (yield Db::execute($sid, []));
+        $this->assertTrue($result, "Db delete failed");
+        $sid = 'market.category.all_rows';
+        $result = (yield Db::execute($sid, []));
+        $this->assertEmpty($result, "Expected database cleared empty");
     }
 }

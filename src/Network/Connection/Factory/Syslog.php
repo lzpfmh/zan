@@ -1,23 +1,11 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Network\Connection\Factory;
 
+use swoole_client as SwooleClient;
 use Zan\Framework\Contract\Network\ConnectionFactory;
+use Zan\Framework\Network\Connection\Driver\Syslog as SyslogDriver;
+use Zan\Framework\Network\Server\Timer\Timer;
 
 class Syslog implements ConnectionFactory
 {
@@ -30,10 +18,34 @@ class Syslog implements ConnectionFactory
     {
         $this->config = $config;
     }
-    
+
     public function create()
     {
-        
+        $socket = new SwooleClient(SWOOLE_SOCK_TCP, SWOOLE_SOCK_ASYNC);
+
+        $connection = new SyslogDriver();
+        $connection->setSocket($socket);
+        $connection->setConfig($this->config);
+        $connection->init();
+
+        //call connect
+        if (false === $socket->connect($this->config['host'], $this->config['port']))
+        {
+            sys_error("Syslog connect ".$this->config['host'].":".$this->config['port']." failed");
+            return null;
+        }
+
+        Timer::after($this->config['connect_timeout'], $this->getConnectTimeoutCallback($connection), $connection->getConnectTimeoutJobId());
+
+        return $connection;
+    }
+
+    public function getConnectTimeoutCallback(SyslogDriver $connection)
+    {
+        return function() use ($connection) {
+            $connection->close();
+            $connection->onConnectTimeout();
+        };
     }
 
     public function close()
@@ -41,7 +53,4 @@ class Syslog implements ConnectionFactory
 
     }
 
-    public function heart()
-    {
-    }
 }

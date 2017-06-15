@@ -10,7 +10,7 @@ class RegisterClassAliases implements Bootable
     /**
      * Bootstrap the given application.
      *
-     * @param  \Zan\Framework\Foundation\Application  $app
+     * @param  \Zan\Framework\Foundation\Application $app
      */
     public function bootstrap(Application $app)
     {
@@ -21,7 +21,7 @@ class RegisterClassAliases implements Bootable
 
     private function registerClassAliasByMap(array $classAliasMap)
     {
-        foreach($classAliasMap as $alias => $original) {
+        foreach ($classAliasMap as $alias => $original) {
             class_alias($original, $alias);
         }
     }
@@ -40,10 +40,10 @@ class RegisterClassAliases implements Bootable
     {
         return [
             'Config'          => 'Zan\\Framework\\Foundation\\Core\\Config',
-            'Handler'         => 'Zan\\Framework\\Foundation\\Exception\\Handler',
             'HttpServer'      => 'Zan\\Framework\\Network\\Http\\Server',
             'TcpServer'       => 'Zan\\Framework\\Network\\Tcp\\Server',
             'Url'             => 'Zan\\Framework\\Utilities\\Types\\URL',
+            'Log'             => 'Zan\\Framework\\Sdk\\Log\\Log',
         ];
     }
 

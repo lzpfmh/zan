@@ -1,19 +1,5 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 namespace Zan\Framework\Utilities\Types;
 
 use ArrayAccess;
@@ -226,7 +212,8 @@ class Arr {
             return $array[$key];
         }
 
-        foreach (explode('.', $key) as $segment) {
+        $arr = explode('.', $key);
+        foreach ($arr as $segment) {
             if (static::accessible($array) && static::exists($array, $segment)) {
                 $array = $array[$segment];
             } else {
@@ -373,6 +360,113 @@ class Arr {
         }
     }
 
+    /**
+     * Get a subset of the items from the given array.
+     *
+     * @param  array  $array
+     * @param  array  $keys
+     * @return array
+     */
+    public static function only(array $array, array $keys)
+    {
+        return array_intersect_key($array, array_flip($keys));
+    }
 
+    /**
+     * Return the values from a single column in the input array
+     *
+     * @link http://www.php.net/manual/en/function.array-column.php
+     *
+     * @param array $input
+     * @param mixed $columnKey
+     * @param mixed $indexKey
+     *
+     * @return array Returns an array of values representing a single column from the input array.
+     */
+    public static function column(array $input, $columnKey, $indexKey = null)
+    {
+        $resultArray = array();
 
+        foreach ($input as $row) {
+
+            $key = $value = null;
+            $keySet = $valueSet = false;
+
+            if ($indexKey !== null && array_key_exists($indexKey, $row)) {
+                $keySet = true;
+                $key = (string) $row[$indexKey];
+            }
+
+            if ($columnKey === null) {
+                $valueSet = true;
+                $value = $row;
+            } elseif (is_array($row) && array_key_exists($columnKey, $row)) {
+                $valueSet = true;
+                $value = $row[$columnKey];
+            }
+
+            if ($valueSet) {
+                if ($keySet) {
+                    $resultArray[$key] = $value;
+                } else {
+                    $resultArray[] = $value;
+                }
+            }
+
+        }
+
+        return $resultArray;
+    }
+    
+    /**
+     * Return the values from a columns in the input array
+     *
+     * @param array $input
+     * @param array $columnKeys
+     * @param mixed $indexKey
+     *
+     * @return array Returns an array of values representing a columns from the input array.
+     */
+    public static function columns(array $input, $columnKeys, $indexKey = null)
+    {
+        $resultArray = array();
+
+        foreach ($input as $row) {
+
+            $key = $value = null;
+            $keySet = $valueSet = false;
+
+            if ($indexKey !== null && array_key_exists($indexKey, $row)) {
+                $keySet = true;
+                $key = (string) $row[$indexKey];
+            }
+
+            if (!is_array($columnKeys) || empty($columnKeys)) {
+                $valueSet = true;
+                $value = $row;
+            } elseif (is_array($row)) {
+                $valueSet = true;
+                $value = self::only($row, $columnKeys);
+            }
+
+            if ($valueSet) {
+                if ($keySet) {
+                    $resultArray[$key] = $value;
+                } else {
+                    $resultArray[] = $value;
+                }
+            }
+
+        }
+
+        return $resultArray;
+    }
+
+    public static function arraySort($arr, $col, $sort = 'desc', $default = false)
+    {
+        $cols = static::array_cols($arr, $col, $default);
+        $sort = 'desc' === strtolower($sort) ? SORT_DESC : SORT_ASC;
+        array_multisort($cols, $sort, $arr);
+        return $arr;
+    }
 }

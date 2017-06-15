@@ -1,19 +1,5 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 namespace Zan\Framework\Network\Http\Request;
 
 use swoole_http_request as SwooleHttpRequest;
@@ -48,7 +34,7 @@ class Request extends BaseRequest implements Arrayable, RequestContract
         $post = isset($swooleRequest->post) ? $swooleRequest->post : [];
         $attributes = [];
         $cookie = isset($swooleRequest->cookie) ? $swooleRequest->cookie : [];
-        $files = [];
+        $files = isset($swooleRequest->files) ? $swooleRequest->files : [];
         $server = isset($swooleRequest->server) ? array_change_key_case($swooleRequest->server, CASE_UPPER) : [];
         if (isset($swooleRequest->header)) {
             foreach ($swooleRequest->header as $key => $value) {
@@ -77,6 +63,29 @@ class Request extends BaseRequest implements Arrayable, RequestContract
         }
 
         return $request;
+    }
+
+    /**
+     * Generates a normalized URI (URL) for the Request.
+     *
+     * @return string A normalized URI (URL) for the Request
+     *
+     * @see getQueryString()
+     */
+    public function getUri()
+    {
+        if (null !== $qs = $this->getQueryString()) {
+            $qs = '?'.$qs;
+        }
+
+        // 若使用了反向代理,通过此处理拿到完整的URL
+        if ($this->headers->has('X_ZAN_PROXY_DIR')) {
+            $baseUrl = '/' . trim($this->headers->get('X_ZAN_PROXY_DIR'), '/');
+        } else {
+            $baseUrl = $this->getBaseUrl();
+        }
+
+        return $this->getSchemeAndHttpHost().$baseUrl.$this->getPathInfo().$qs;
     }
 
     /**
@@ -122,8 +131,8 @@ class Request extends BaseRequest implements Arrayable, RequestContract
     public function getFullUrlWithAddedQuery(array $query)
     {
         return count($this->get()) > 0
-                        ? $this->getUrl().'/?'.http_build_query(array_merge($this->get(), $query))
-                        : $this->getFullUrl().'?'.http_build_query($query);
+            ? $this->getUrl().'/?'.http_build_query(array_merge($this->get(), $query))
+            : $this->getFullUrl().'?'.http_build_query($query);
     }
 
     /**

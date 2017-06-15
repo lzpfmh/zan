@@ -1,19 +1,4 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 namespace Zan\Framework\Store\Database\Sql;
 
 use Zan\Framework\Store\Database\Sql\Exception\SqlBuilderException;
@@ -76,16 +61,19 @@ class SqlBuilder
         if (!$data || !isset($data['count']) || '' == $data['count']) {
             throw new SqlBuilderException('what field do you want count?');
         }
-        $count = 'count(' . $data['count'] . ') as count_sql_rows';
+        $count = 'count(' . $data['count'] . ')';
         $this->sqlMap['sql'] = $this->replaceSqlLabel($this->sqlMap['sql'], 'count', $count);
+        $this->sqlMap['count_alias'] = $count;
         return $this;
     }
 
     private function insert($data)
     {
+        $this->parseVars($data);
         if (isset($data['inserts'])) {
             return $this->batchInserts($data);
         }
+        $this->checkInsertRequire($data);
         $insert = isset($data['insert']) ? $data['insert'] : [];
         if (!is_array($insert) || count($insert) == 0) {
             $this->sqlMap['sql'] = $this->replaceSqlLabel($this->sqlMap['sql'], 'insert', '');
@@ -111,7 +99,9 @@ class SqlBuilder
             $this->sqlMap['sql'] = $this->replaceSqlLabel($this->sqlMap['sql'], 'inserts', '');
             return $this;
         }
-
+        foreach ($data['inserts'] as $insert) {
+            $this->checkInsertRequire(['insert' => $insert]);
+        }
         $insertsArr = [];
         $cloumns = array_keys($inserts[0]);
         $replace  = '(' . implode(',', $cloumns) . ') values ';
@@ -197,12 +187,49 @@ class SqlBuilder
             }
             if (count($limitMap) > 0) {
                 if (!isset($limitMap[$col])) {
-                    throw new SqlBuilderException('sql map limit error');
+                    throw new SqlBuilderException('sql map limit error, your insert column not in limit map:'.$col);
                 }
             }
         }
         if (count($requireMap) > 0) {
-            throw new SqlBuilderException('sql map require error');
+            throw new SqlBuilderException('sql map require error, require map need your insert must have the columns:'.implode(', ', array_keys($requireMap)));
+        }
+        return true;
+    }
+
+    private function checkInsertRequire($data)
+    {
+        if (!isset($data['insert'])) {
+            return true;
+        }
+        $insert = $data['insert'];
+        $requireMap = [];
+        $limitMap = [];
+        if (is_array($this->sqlMap['require']) && [] != $this->sqlMap['require']) {
+            $requireMap = array_flip($this->sqlMap['require']);
+        }
+        if (is_array($this->sqlMap['limit']) && [] != $this->sqlMap['limit']) {
+            $limitMap = array_flip($this->sqlMap['limit']);
+        }
+
+        if ([] == $requireMap && [] == $limitMap) {
+            return true;
+        }
+
+        foreach($insert as $column => $value) {
+            if (count($requireMap) > 0) {
+                if (isset($requireMap[$column])) {
+                    unset($requireMap[$column]);
+                }
+            }
+            if (count($limitMap) > 0) {
+                if (!isset($limitMap[$column])) {
+                    throw new SqlBuilderException('sql map limit error, your insert column not in limit map:'.$column);
+                }
+            }
+        }
+        if (count($requireMap) > 0) {
+            throw new SqlBuilderException('sql map require error, require map need your insert must have the columns:'.implode(', ', array_keys($requireMap)));
         }
         return true;
     }
@@ -230,7 +257,7 @@ class SqlBuilder
         if (!isset($update[0])) {
             $tmp = [];
             foreach ($update as $column => $value) {
-                $tmp[] = [$column, $value];
+                $tmp[] = [$column, Validator::realEscape($value)];
             }
             $update = $tmp;
         }
@@ -288,6 +315,12 @@ class SqlBuilder
             return $this;
         }
         $parseWhere = $this->parseWhereStyleData($where, 'and');
+        preg_match('/where([^#]*)#where#/i', $this->sqlMap['sql'], $match);
+        if (isset($match[1])) {
+            if ('' != trim($match[1])) {
+                $parseWhere = ' and ' . $parseWhere;
+            }
+        }
         $this->sqlMap['sql'] = $this->replaceSqlLabel($this->sqlMap['sql'], 'where', $parseWhere);
         return $this;
     }

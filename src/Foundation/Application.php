@@ -1,22 +1,10 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 namespace Zan\Framework\Foundation;
 
 use RuntimeException;
+use Zan\Framework\Foundation\Booting\InitializeCliInput;
+use Zan\Framework\Foundation\Booting\InitializeCache;
 use Zan\Framework\Foundation\Booting\LoadFiles;
 use Zan\Framework\Foundation\Container\Container;
 use Zan\Framework\Foundation\Booting\InitializeSharedObjects;
@@ -36,7 +24,7 @@ class Application
      *
      * @var string
      */
-    const VERSION = '1.0';
+    const VERSION = '2.0';
 
     /**
      * The current globally available container (if any).
@@ -72,6 +60,11 @@ class Application
     protected $container;
 
     /**
+     * @var \Zan\Framework\Network\Server\ServerBase;
+     */
+    protected $server;
+
+    /**
      * Create a new Zan application instance.
      *
      * @param string $appName
@@ -81,11 +74,11 @@ class Application
     {
         $this->appName = $appName;
 
+        static::setInstance($this);
+
         $this->setBasePath($basePath);
 
         $this->bootstrap();
-
-        static::setInstance($this);
     }
 
     protected function bootstrap()
@@ -93,14 +86,16 @@ class Application
         $this->setContainer();
 
         $bootstrapItems = [
+            InitializeEnv::class,
+            InitializeCliInput::class,
             InitializeRunMode::class,
             InitializeDebug::class,
             InitializePathes::class,
-            InitializeEnv::class,
             LoadConfiguration::class,
             InitializeSharedObjects::class,
             RegisterClassAliases::class,
             LoadFiles::class,
+            InitializeCache::class,
         ];
 
         foreach ($bootstrapItems as $bootstrap) {
@@ -201,7 +196,7 @@ class Application
     /**
      * Set the shared instance of the container.
      *
-     * @param  \Zan\Framework\Foundation\Application  $app
+     * @param  \Zan\Framework\Foundation\Application $app
      * @return void
      */
     public static function setInstance($app)
@@ -245,9 +240,13 @@ class Application
      */
     public function createHttpServer()
     {
-        return $this->getContainer()
-            ->make(ServerFactory::class)
+        $server = $this->getContainer()
+            ->make(ServerFactory::class, ['server'])
             ->createHttpServer();
+
+        $this->server = $server;
+
+        return $server;
     }
 
     /**
@@ -257,8 +256,36 @@ class Application
      */
     public function createTcpServer()
     {
-        return $this->getContainer()
-            ->make(ServerFactory::class)
+        $server = $this->getContainer()
+            ->make(ServerFactory::class, ['server'])
             ->createTcpServer();
+
+        $this->server = $server;
+
+        return $server;
+    }
+
+    /**
+     * get websocket server.
+     *
+     * @return \Zan\Framework\Network\WebSocket\Server
+     */
+    public function createWebSocketServer()
+    {
+        $server = $this->getContainer()
+            ->make(ServerFactory::class, ['server'])
+            ->createWebSocketServer();
+
+        $this->server = $server;
+
+        return $server;
+    }
+
+    /**
+     * @return \Zan\Framework\Network\Server\ServerBase
+     */
+    public function getServer()
+    {
+        return $this->server;
     }
 }

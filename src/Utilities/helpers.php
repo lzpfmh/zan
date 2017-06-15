@@ -1,22 +1,8 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 use Zan\Framework\Utilities\Types\Arr;
 
-//TODO move to Arr
+
 if (! function_exists('data_set')) {
     /**
      * Set an item on an array or object using dot notation.
@@ -71,18 +57,45 @@ if (! function_exists('data_set')) {
     }
 }
 
-if (! function_exists('echo_exception')) {
-    function echo_exception(\Exception $e)
-    {
-        $code = $e->getCode();
-        $msg = $e->getMessage();
-        $trace = $e->getTraceAsString();
+if (! function_exists('sys_echo')) {
+    function sys_echo($context) {
+        $workerId = isset($_SERVER["WORKER_ID"]) ? $_SERVER["WORKER_ID"] : "";
+        $dataStr = date("Y-m-d H:i:s");
+        echo "[$dataStr #$workerId] $context\n";
+    }
+}
 
-        echo <<<EOF
+if (! function_exists('sys_error')) {
+    function sys_error($context) {
+        $workerId = isset($_SERVER["WORKER_ID"]) ? $_SERVER["WORKER_ID"] : "";
+        $dataStr = date("Y-m-d H:i:s");
+        $context = str_replace("%", "%%", $context);
+        fprintf(STDERR, "[$dataStr #$workerId] $context\n");
+    }
+}
+
+if (! function_exists('echo_exception')) {
+    /**
+     * @param \Throwable $t
+     */
+    function echo_exception($t)
+    {
+        // 兼容PHP7 & PHP5
+        if ($t instanceof \Throwable || $t instanceof \Exception) {
+            $time = date('Y-m-d H:i:s');
+            $class = get_class($t);
+            $code = $t->getCode();
+            $msg = $t->getMessage();
+            $trace = $t->getTraceAsString();
+            $workerId = isset($_SERVER["WORKER_ID"]) ? $_SERVER["WORKER_ID"] : -1;
+            echo <<<EOF
         
         
 ###################################################################################
-          \033[1;31mGot a exception\033[0m
+          \033[1;31mGot an exception\033[0m
+          worker: #$workerId
+          time: $time
+          class: $class
           code: $code
           message: $msg
           
@@ -91,19 +104,33 @@ $trace
 
 
 EOF;
+        }
+    }
+}
+
+if (! function_exists('t2ex')) {
+    if (interface_exists("Throwable")) {
+        /**
+         * @param Throwable $t
+         * @return Exception
+         */
+        function t2ex(\Throwable $t)
+        {
+            if ($t instanceof \Exception) {
+                return $t;
+            } else if ($t instanceof \Error) {
+                return new \Exception($t->getMessage(), $t->getCode(), $t);
+            } else {
+                assert(false);
+            }
+        }
     }
 }
 
 if (! function_exists('dd')) {
     function dd()
     {
-        if (func_num_args() === 0) {
-            return;
-        }
-
-        // Get all passed variables
-        $variables = func_get_args();
-        var_dump($variables);
+        var_dump(...func_get_args());
         die;
     }
 }
@@ -111,12 +138,6 @@ if (! function_exists('dd')) {
 if (! function_exists('d')) {
     function d()
     {
-        if (func_num_args() === 0) {
-            return;
-        }
-
-        // Get all passed variables
-        $variables = func_get_args();
-        var_dump($variables);
+        var_dump(...func_get_args());
     }
 }

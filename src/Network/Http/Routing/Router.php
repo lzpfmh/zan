@@ -1,19 +1,4 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 namespace Zan\Framework\Network\Http\Routing;
 
 use Zan\Framework\Foundation\Core\Config;
@@ -26,7 +11,7 @@ class Router {
     use Singleton;
 
     private $config;
-    private $url;
+    private $url = '';
     private $route = '';
     private $format = '';
     private $rules = [];
@@ -60,12 +45,10 @@ class Router {
     {
         $requestUri = $request->server->get('REQUEST_URI');
         if(preg_match('/\.ico$/i', $requestUri)){
-            $requestUri = '';
+            return false;
         }
-        $this->prepare($requestUri);
-        $this->parseRequestFormat($requestUri);
-        empty($this->url) ? $this->setDefaultRoute() : $this->parseRegexRoute();
-        $this->repairRoute();
+
+        $this->route = $this->handleUri($requestUri);
         $request->setRoute($this->route);
         $request->setRequestFormat($this->format);
         $this->setParameters($request, $this->parameters);
@@ -74,7 +57,28 @@ class Router {
         return $route;
     }
 
-    public function parseRoute()
+    public function handleUri($uri)
+    {
+        $this->prepare($uri);
+        $this->parseRequestFormat($uri);
+        empty($this->url) ? $this->setDefaultRoute() : $this->parseRegexRoute();
+        $this->repairRoute();
+
+        $rewriteRule = Config::get("rewrite");
+        if (is_array($rewriteRule)) {
+            foreach ($rewriteRule as $key => $value) {
+                $key = ltrim($key, "/");
+                $value = ltrim($value, "/");
+                if (preg_match('`'.$key.'`', $this->route)) {
+                    $this->route = preg_replace('`'.$key.'`', $value, $this->route);
+                    break;
+                }
+            }
+        }
+        return $this->route;
+    }
+
+    private function parseRoute()
     {
         $parts = array_filter(explode($this->separator, trim($this->route, $this->separator)));
         $route['action_name'] = array_pop($parts);
@@ -85,12 +89,17 @@ class Router {
     private function parseRequestFormat($requestUri)
     {
         if(false === strpos($requestUri, '.')) {
-            return $this->setDefaultFormat();
+            $this->setDefaultFormat();
+            return;
         }
         $explodeArr = explode('.', $requestUri);
-        $whiteList = isset($this->config['format_whitelist']) ? $this->config['format_whitelist'] : array();
-        $this->format = in_array($explodeArr[1], $whiteList) ? trim($explodeArr[1]) : $this->getDefaultFormat();
-        $this->url = $explodeArr[0];
+        if(isset($this->config['format_whitelist']) && in_array(end($explodeArr), $this->config['format_whitelist'])){
+            $this->format = end($explodeArr);
+            array_pop($explodeArr);
+            $this->url = implode('.', $explodeArr);
+        }else{
+            $this->setDefaultFormat();
+        }
     }
 
     private function repairRoute()

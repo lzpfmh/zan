@@ -1,39 +1,37 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: winglechen
- * Date: 16/3/2
- * Time: 17:44
- */
 
 namespace Zan\Framework\Foundation\Core;
 
-class Debug {
+class Debug
+{
 
     private static $debug = null;
-    private static $cliInput = null;
 
     public static function get()
     {
         return self::$debug;
     }
 
-    public static function setCliInput($mode)
+    public static function enableDebug()
     {
-        self::$cliInput == $mode ? true : false;
+        self::$debug = true;
+    }
+
+    public static function disableDebug()
+    {
+        self::$debug = false;
     }
 
     public static function detect()
     {
-        if(null !== self::$cliInput){
-            self::$debug = self::$cliInput;
-            return true;
+        if(null !== self::$debug){
+            return;
         }
 
-        $iniInput = get_cfg_var('zan.DEBUG');
+        $iniInput = get_cfg_var('zanphp.DEBUG');
         if($iniInput){
             self::$debug = true;
-            return true;
+            return;
         }
 
         self::$debug = false;

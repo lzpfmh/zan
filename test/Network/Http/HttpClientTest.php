@@ -1,42 +1,13 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
-
 namespace Zan\Framework\Test\Network\Http;
 
+use Zan\Framework\Network\Common\Exception\HttpClientTimeoutException;
 use Zan\Framework\Network\Common\HttpClient;
 use Zan\Framework\Testing\TaskTest;
 
-use Zan\Framework\Foundation\Coroutine\Task;
-use Zan\Framework\Test\Foundation\Coroutine\Context;
-
 class HttpClientTest extends TaskTest
 {
-
-
-
-    public function testTaskCall()
-    {
-        $context = new Context();
-        $task = new Task($this->makeCoroutine($context), null, 8);
-        $task->run();
-
-    }
-
-    private function makeCoroutine($context)
+    public function taskHttpGet()
     {
         $params = [
             'txt' => 'aaa',
@@ -49,11 +20,16 @@ class HttpClientTest extends TaskTest
             'fg_color' => '000000',
             'bg_color' => 'ffffff',
         ];
-        $result = (yield HttpClient::newInstance('192.168.66.202', 8888)->get('', $params));
+        $httpClient = new HttpClient('127.0.0.1', 12345);
+        try {
+            $response = (yield $httpClient->get('', $params));
+        } catch (\Exception $e) {
+            $this->assertInstanceOf(HttpClientTimeoutException::class, $e, $e->getMessage());
+            return;
+        }
 
-        var_dump($result);
-        exit;
+        $result = $response->getBody();
 
-        yield 'success';
+        $this->assertEquals($result, http_build_query($params), "Http request failed");
     }
 }

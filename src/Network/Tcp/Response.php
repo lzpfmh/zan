@@ -1,19 +1,4 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Network\Tcp;
 
@@ -21,12 +6,19 @@ use Kdt\Iron\Nova\Nova;
 use swoole_server as SwooleServer;
 use Zan\Framework\Contract\Network\Response as BaseResponse;
 
-class Response implements BaseResponse {
+class Response implements BaseResponse
+{
     /**
      * @var SwooleServer
      */
     private $swooleServer;
+
+    /**
+     * @var Request
+     */
     private $request;
+
+    private $exception;
 
     public function __construct(SwooleServer $swooleServer, Request $request)
     {
@@ -39,16 +31,31 @@ class Response implements BaseResponse {
         return $this->swooleServer;
     }
 
+    public function getException()
+    {
+        return $this->exception;
+    }
+
     public function end($content='')
     {
         $this->send($content);
     }
 
+    /**
+     * @param $e \Exception
+     */
     public function sendException($e)
     {
+        $this->exception = $e->getMessage();
         $serviceName = $this->request->getServiceName();
         $novaServiceName = $this->request->getNovaServiceName();
         $methodName  = $this->request->getMethodName();
+
+        // 泛化调用不透传任何异常, 直接打包发送
+        if ($this->request->isGenericInvoke()) {
+            return $this->send($e);
+        }
+
         $content = Nova::encodeServiceException($novaServiceName, $methodName, $e);
 
         $remote = $this->request->getRemote();
@@ -76,6 +83,13 @@ class Response implements BaseResponse {
         $serviceName = $this->request->getServiceName();
         $novaServiceName = $this->request->getNovaServiceName();
         $methodName  = $this->request->getMethodName();
+
+        if ($this->request->isGenericInvoke()) {
+            $content = GenericRequestCodec::encode(
+                $this->request->getGenericServiceName(),
+                $this->request->getGenericMethodName(), $content);
+        }
+
         $content = Nova::encodeServiceOutput($novaServiceName, $methodName, $content);
 
         $remote = $this->request->getRemote();
@@ -89,14 +103,11 @@ class Response implements BaseResponse {
             $content,
             $outputBuffer)) {
 
-
             $swooleServer = $this->getSwooleServer();
-            $sendState = $swooleServer->send(
+            $swooleServer->send(
                 $this->request->getFd(),
                 $outputBuffer
             );
         }
     }
-    
-
 }

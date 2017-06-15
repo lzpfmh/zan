@@ -1,26 +1,13 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Network\Tcp;
 
+use Thrift\Exception\TApplicationException;
 use Zan\Framework\Contract\Network\Request as BaseRequest;
 use Kdt\Iron\Nova\Nova;
 
-class Request implements BaseRequest {
+class Request implements BaseRequest
+{
     private $data;
     private $route;
     private $serviceName;
@@ -33,8 +20,19 @@ class Request implements BaseRequest {
     private $remotePort;
     private $fromId;
     private $seqNo;
-    private $attachData;
+
+    private $startTime;
     private $isHeartBeat = false;
+
+    private $isGenericInvoke = false;
+    private $genericServiceName;
+    private $genericMethodName;
+    private $genericRoute;
+
+    /**
+     * @var RpcContext
+     */
+    private $rpcContext;
 
     public function __construct($fd, $fromId, $data)
     {
@@ -79,14 +77,9 @@ class Request implements BaseRequest {
         $this->seqNo = $seqNo;
     }
 
-    public function setAttachData($attachData)
-    {
-        $this->attachData = $attachData;
-    }
-
     public function getAttachData()
     {
-        return $this->attachData;
+        return $this->rpcContext->pack();
     }
 
     public function getRoute()
@@ -142,6 +135,51 @@ class Request implements BaseRequest {
         return $this->isHeartBeat;
     }
 
+    public function getStartTime()
+    {
+        return $this->startTime;
+    }
+
+    public function setStartTime()
+    {
+        $this->startTime = microtime(true);
+    }
+
+    public function getRemoteIp()
+    {
+        return $this->remoteIp;
+    }
+
+    public function setRemoteIp($remoteIp)
+    {
+        $this->remoteIp = $remoteIp;
+    }
+
+    public function getGenericServiceName()
+    {
+        return $this->genericServiceName;
+    }
+
+    public function getGenericMethodName()
+    {
+        return $this->genericMethodName;
+    }
+
+    public function getGenericRoute()
+    {
+        return $this->genericRoute;
+    }
+
+    public function getRpcContext()
+    {
+        return $this->rpcContext;
+    }
+
+    public function isGenericInvoke()
+    {
+        return $this->isGenericInvoke;
+    }
+
     private function formatRoute()
     {
         $serviceName = ucwords($this->serviceName, '.');
@@ -175,16 +213,41 @@ class Request implements BaseRequest {
             $this->remoteIp = $remoteIP;
             $this->remotePort = $remotePort;
             $this->seqNo = $seqNo;
-            $this->attachData = $attachData;
-
-            $this->formatRoute();
-            $this->decodeArgs();
+            $this->rpcContext = RpcContext::unpack($attachData);
 
             if('com.youzan.service.test' === $serviceName and 'ping' === $methodName) {
                 $this->isHeartBeat = true;
+                $data = null;
+                nova_encode($this->serviceName, 'pong', $this->remoteIp, $this->remotePort, $this->seqNo, '', '', $data);
+                return $data;
             }
+
+            $this->isGenericInvoke = GenericRequestCodec::isGenericService($serviceName);
+            if ($this->isGenericInvoke) {
+                $this->initGenericInvoke($serviceName);
+                return null;
+            }
+
+            $this->formatRoute();
+            $this->decodeArgs();
         } else {
-            //TODO: throw TApplicationException
+            throw new TApplicationException("nova_decode fail");
         }
+    }
+
+    private function initGenericInvoke($serviceName)
+    {
+        $this->novaServiceName = str_replace('.', '\\', ucwords($this->serviceName, '.'));
+        $genericRequest = GenericRequestCodec::decode($this->novaServiceName, $this->methodName, $this->args);
+        $this->genericServiceName = $genericRequest->serviceName;
+        $this->genericMethodName = $genericRequest->methodName;
+        $this->args = $genericRequest->methodParams;
+        $this->route = '/'. str_replace('.', '/', $serviceName) . '/' . $this->methodName;
+        $this->genericRoute = '/'. str_replace('\\', '/', $this->genericServiceName) . '/' . $this->genericMethodName;
+
+        // NOTICE: java-nova框架使用async的参数, 在java应用间表示调用发方式
+        // php无用, 且通过nova透传调用改参数调用java会变成异步调用, 此处删除
+        // 卡门其他透传参数暂时保留
+        $this->rpcContext->set("async", null);
     }
 }

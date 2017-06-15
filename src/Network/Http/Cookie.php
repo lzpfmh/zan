@@ -1,19 +1,4 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Network\Http;
 
@@ -28,6 +13,8 @@ class Cookie
     private $config;
     private $request;
     private $response;
+
+    private static $domainWhiteList;
 
     public function __construct(Request $request, SwooleHttpResponse $swooleResponse)
     {
@@ -66,11 +53,47 @@ class Cookie
         $expire = time() + (int)$expire;
 
         $path = (null !== $path) ? $path : $this->config['path'];
-        $domain = (null !== $domain) ? $domain : $this->request->getHost();
+        $domain = (null !== $domain) ? $domain : $this->getDomain($this->request->getHost() ?: "");
         $secure = (null !== $secure) ? $secure : $this->config['secure'];
         $httpOnly = (null !== $httpOnly) ? $httpOnly : $this->config['httponly'];
 
         $this->response->cookie($key, $value, $expire, $path, $domain, $secure, $httpOnly);
     }
 
+    private function getDomain($host)
+    {
+        if (static::$domainWhiteList === null) {
+            static::initDomainWhiteList();
+        }
+
+        $hostLen = strlen($host);
+        foreach (static::$domainWhiteList as $domain => $len) {
+            if ($hostLen < $len) {
+                continue;
+            }
+
+            if (substr(rtrim($host), -$len) === $domain) {
+                return $domain;
+            }
+        }
+        return $host;
+    }
+
+    private function initDomainWhiteList()
+    {
+        $domainList = [
+            '.koudaitong.com',
+            '.youzan.com',
+            '.qima-inc.com',
+            '.kdt.im',
+        ];
+
+        array_push($domainList, ...(array)Config::get("cookie.domain", []));
+
+        foreach ($domainList as $domain) {
+            static::$domainWhiteList[$domain] = strlen($domain);
+        }
+
+        arsort(static::$domainWhiteList);
+    }
 }

@@ -1,25 +1,11 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Store\Facade;
 
 use Zan\Framework\Store\Database\Flow;
 
-class Db {
+class Db
+{
     const RETURN_AFFECTED_ROWS  = true;
     const USE_MASTER            = true;
     const RETURN_INSERT_ID      = false;
@@ -31,21 +17,27 @@ class Db {
         return;
     }
  
-    public static function beginTransaction()
+    public static function beginTransaction($flags = 0)
     {
         $flow = new Flow();
-        yield $flow->beginTransaction();
+        yield $flow->beginTransaction($flags);
     }
     
-    public static function commit()
+    public static function commit($flags = 0)
     {
         $flow = new Flow();
-        yield $flow->commit();
+        yield $flow->commit($flags);
     }
     
-    public static function rollback()
+    public static function rollback($flags = 0)
     {
         $flow = new Flow();
-        yield $flow->rollback();
+        yield $flow->rollback($flags);
+    }
+
+    public static function terminate()
+    {
+        $flow = new Flow();
+        yield $flow->terminate();
     }
 }

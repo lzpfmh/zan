@@ -1,63 +1,47 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 namespace Zan\Framework\Network\Http;
 
+use Zan\Framework\Network\Http\ServerStart\InitializeProxyIps;
 use Zan\Framework\Network\Http\ServerStart\InitializeRouter;
-use Zan\Framework\Network\Http\ServerStart\InitializeUrlConfig;
 use Zan\Framework\Network\Http\ServerStart\InitializeUrlRule;
+use Zan\Framework\Network\Http\ServerStart\InitializeRouterSelfCheck;
 use Zan\Framework\Network\Http\ServerStart\InitializeMiddleware;
-use Zan\Framework\Network\Http\ServerStart\InitializeCache;
 use Zan\Framework\Network\Http\ServerStart\InitializeExceptionHandlerChain;
+use Zan\Framework\Network\Server\Monitor\Worker;
+use Zan\Framework\Network\Server\ServerStart\InitLogConfig;
 use Zan\Framework\Network\Server\WorkerStart\InitializeConnectionPool;
-use swoole_http_server as SwooleServer;
+use Zan\Framework\Network\Server\WorkerStart\InitializeErrorHandler;
+use Zan\Framework\Network\Server\WorkerStart\InitializeWorkerMonitor;
+use Zan\Framework\Network\Server\WorkerStart\InitializeServerDiscovery;
+use Zan\Framework\Network\Http\ServerStart\InitializeUrlConfig;
 use swoole_http_request as SwooleHttpRequest;
 use swoole_http_response as SwooleHttpResponse;
-use Zan\Framework\Contract\Network\Server as ServerContract;
 use Zan\Framework\Network\Server\ServerBase;
 use Zan\Framework\Network\Http\ServerStart\InitializeSqlMap;
 
-class Server extends ServerBase implements ServerContract
+class Server extends ServerBase
 {
     protected $serverStartItems = [
         InitializeRouter::class,
         InitializeUrlRule::class,
         InitializeUrlConfig::class,
+        InitializeRouterSelfCheck::class,
         InitializeMiddleware::class,
         InitializeExceptionHandlerChain::class,
-        InitializeCache::class,
+        InitLogConfig::class,
         InitializeSqlMap::class,
+        InitializeProxyIps::class,
     ];
 
     protected $workerStartItems = [
+        InitializeErrorHandler::class,
+        InitializeWorkerMonitor::class,
         InitializeConnectionPool::class,
+        InitializeServerDiscovery::class,
     ];
 
-    /**
-     * @var swooleServer
-     */
-    public $swooleServer;
-
-    public function __construct(SwooleServer $swooleServer, array $config)
-    {
-        $this->swooleServer = $swooleServer;
-        $this->swooleServer->set($config);
-    }
-
-    public function start()
+    public function setSwooleEvent()
     {
         $this->swooleServer->on('start', [$this, 'onStart']);
         $this->swooleServer->on('shutdown', [$this, 'onShutdown']);
@@ -67,46 +51,45 @@ class Server extends ServerBase implements ServerContract
         $this->swooleServer->on('workerError', [$this, 'onWorkerError']);
 
         $this->swooleServer->on('request', [$this, 'onRequest']);
-
-        $this->bootServerStartItem();
-
-        $this->swooleServer->start();
     }
 
-    public function stop()
+    protected function init()
     {
-
-    }
-
-    public function reload()
-    {
-
     }
 
     public function onStart($swooleServer)
     {
-        echo "http server start ......\n";
+        $this->writePid($swooleServer->master_pid);
+        sys_echo("server starting .....[$swooleServer->host:$swooleServer->port]");
     }
 
     public function onShutdown($swooleServer)
     {
-        echo "http server shutdown ...... \n";
+        $this->removePidFile();
+        sys_echo("server shutdown .....");
     }
 
     public function onWorkerStart($swooleServer, $workerId)
     {
-        echo "http worker start ..... \n";
+        $_SERVER["WORKER_ID"] = $workerId;
         $this->bootWorkerStartItem($workerId);
+        sys_echo("worker *$workerId starting .....");
     }
 
     public function onWorkerStop($swooleServer, $workerId)
     {
-        echo "http worker stop ..... \n";
+        sys_echo("worker *$workerId stopping .....");
+
+        $num = Worker::getInstance()->reactionNum ?: 0;
+        sys_echo("worker *$workerId still has $num requests in progress...");
     }
 
-    public function onWorkerError($swooleServer, $workerId, $workerPid, $exitCode)
+    public function onWorkerError($swooleServer, $workerId, $workerPid, $exitCode, $sigNo)
     {
-        echo "http worker error ..... \n";
+        sys_echo("worker error happening [workerId=$workerId, workerPid=$workerPid, exitCode=$exitCode, signalNo=$sigNo]...");
+
+        $num = Worker::getInstance()->reactionNum ?: 0;
+        sys_echo("worker *$workerId still has $num requests in progress...");
     }
 
     public function onRequest(SwooleHttpRequest $swooleHttpRequest, SwooleHttpResponse $swooleHttpResponse)

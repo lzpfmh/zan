@@ -2,7 +2,6 @@
 
 namespace Zan\Framework\Contract\Utilities\Validation;
 
-
 use Zan\Framework\Contract\Foundation\MessageProvider;
 
 interface Validator extends MessageProvider

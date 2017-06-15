@@ -1,25 +1,16 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Foundation\View;
 
 
 class JsVar
 {
+    /**
+     * window._global 协议版本，方便前端开发判断是否是Zan PHP
+     * 的 _global 变量来做一些相应的兼容处理。
+     * @var string
+     */
+    private $protocolVersion = '2.0.0';
     /**
      * 用户账户相关
      * @var array
@@ -55,6 +46,11 @@ class JsVar
      * @var array
      */
     private $_domain = [];
+    /**
+     * CSRF Token
+     * @var string
+     */
+    private $_csrfToken = '';
 
     public function setSession($key, $value)
     {
@@ -91,9 +87,15 @@ class JsVar
         $this->_domain = $domainList;
     }
 
+    public function setCsrfToken($csrfToken)
+    {
+        $this->_csrfToken = $csrfToken;
+    }
+
     public function get()
     {
         return [
+            'protocol_version' => $this->protocolVersion,
             'session' => $this->_session,
             'config' => $this->_config,
             'query' => $this->_query,
@@ -101,6 +103,7 @@ class JsVar
             'business' => $this->_business,
             'share' => $this->_share,
             'url' => $this->_domain,
+            'csrf_token' => $this->_csrfToken
         ];
     }
-} 
+}

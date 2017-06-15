@@ -1,19 +1,4 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Network\Http\ServerStart;
 
@@ -23,12 +8,12 @@ use Zan\Framework\Foundation\Core\ConfigLoader;
 
 class InitializeMiddleware
 {
-    private $extendFilters = [
-        //'filter1', 'filter2'
+    private $zanFilters = [
+        \Zan\Framework\Network\Http\Middleware\SessionFilter::class,
     ];
 
-    private $extendTerminators = [
-         //'terminator1', 'terminator2'
+    private $zanTerminators = [
+        \Zan\Framework\Network\Http\Middleware\SessionTerminator::class,
     ];
 
     /**
@@ -38,10 +23,13 @@ class InitializeMiddleware
     {
         $middlewareInitiator = MiddlewareInitiator::getInstance();
         $middlewareConfig = ConfigLoader::getInstance()->load(Config::get('path.middleware'));
+        $exceptionHandlerConfig = isset($middlewareConfig['exceptionHandler']) ? $middlewareConfig['exceptionHandler'] : [];
+        $exceptionHandlerConfig = is_array($exceptionHandlerConfig) ? $exceptionHandlerConfig : [];
         $middlewareConfig = isset($middlewareConfig['middleware']) ? $middlewareConfig['middleware'] : [];
-        $middlewareConfig = !is_array($middlewareConfig) || [] == $middlewareConfig ? [] : $middlewareConfig;
+        $middlewareConfig = is_array($middlewareConfig) ? $middlewareConfig : [];
         $middlewareInitiator->initConfig($middlewareConfig);
-        $middlewareInitiator->initExtendFilters($this->extendFilters);
-        $middlewareInitiator->initExtendTerminators($this->extendTerminators);
+        $middlewareInitiator->initExceptionHandlerConfig($exceptionHandlerConfig);
+        $middlewareInitiator->initZanFilters($this->zanFilters);
+        $middlewareInitiator->initZanTerminators($this->zanTerminators);
     }
 }

@@ -1,19 +1,4 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 namespace Zan\Framework\Store\Database\Sql;
 
 use Zan\Framework\Contract\Store\Database\ResultTypeInterface;
@@ -33,7 +18,7 @@ class SqlParser
     public function parse()
     {
         foreach ($this->sqlMap as $key => $map) {
-            if ($key == 'table') {
+            if ($key == 'table' || !isset($map['sql'])) {
                 continue;
             }
             $expKey = explode('_', $key);
@@ -67,7 +52,7 @@ class SqlParser
     {
         preg_match('/^\s*(INSERT|SELECT|UPDATE|DELETE)/is', $sql, $match);
         if (!$match) {
-            throw new SqlTypeException('sql语句类型错误,必须是INSERT|SELECT|UPDATE|DELETE其中之一');
+            throw new SqlTypeException('sql语句类型错误,必须是INSERT|SELECT|UPDATE|DELETE其中之一 : ' . $sql);
         }
         return strtolower(trim($match[0]));
     }
@@ -96,6 +81,9 @@ class SqlParser
             case 'count' :
                 $resultType = ResultTypeInterface::COUNT;
                 break;
+            case 'affected' :
+                $resultType = ResultTypeInterface::AFFECTED_ROWS;
+                break;
             case 'raw' :
                 $resultType = ResultTypeInterface::RAW;
                 break;
@@ -117,17 +105,17 @@ class SqlParser
             'REPLACE'=> '/(?<=REPLACE\s)\S*/i'
         ];
         if (isset($map['table']) && '' !== $map['table']) {
-            return $map;
+            return $map['table'];
         }
         $sql = $map['sql'];
         $type = strtoupper(substr($sql, 0, strpos($sql, ' ')));
         $matches = null;
         if (!isset($tablePregMap[$type])) {
-            throw new SqlCanNotFindTableNameException('Can not find table name, please check your sql type');
+            throw new SqlCanNotFindTableNameException('Can not find table name, please check your sql type :' . $sql);
         }
         preg_match($tablePregMap[$type], $sql, $matches);
         if (!is_array($matches) || !isset($matches[0])) {
-            throw new SqlCanNotFindTableNameException('Can not find table name, please check your sql type');
+            throw new SqlCanNotFindTableNameException('Can not find table name, please check your sql type : ' . $sql);
         }
         $table = $matches[0];
         //去除`符合和库名
@@ -136,7 +124,7 @@ class SqlParser
         }
         $table = trim($table, '`');
         if ('' == $table || !strlen($table)) {
-            throw new SqlCanNotFindTableNameException('Can\'t get table name');
+            throw new SqlCanNotFindTableNameException('Can\'t get table name : '. $sql);
         }
         return $table;
     }

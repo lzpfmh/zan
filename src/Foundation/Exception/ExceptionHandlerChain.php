@@ -1,17 +1,11 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: winglechen
- * Date: 16/4/10
- * Time: 17:32
- */
 
 namespace Zan\Framework\Foundation\Exception;
 
 use Zan\Framework\Contract\Foundation\ExceptionHandler;
 use Zan\Framework\Foundation\Exception\Handler\ExceptionLogger;
 use Zan\Framework\Network\Http\Response\BaseResponse;
-use swoole_http_response as SwooleHttpResponse;
+use Zan\Framework\Network\Http\Response\ResponseTrait;
 
 class ExceptionHandlerChain
 {
@@ -31,18 +25,21 @@ class ExceptionHandlerChain
         $this->handlerMap = [];
     }
 
-    public function handle(\Exception $e)
+    public function handle(\Exception $e, array $extraHandlerChain = [])
     {
-        if (empty($this->handlerChain)) {
-            //@TODO 输出到console
+        /** @var ExceptionHandler[] $handlerChain */
+        $handlerChain = array_merge(array_values($extraHandlerChain), $this->handlerChain);
+        if (empty($handlerChain)) {
+            echo_exception($e);
             return;
-            // throw $e;
         }
+
+        $response = null;
 
         //at less one handler handle the exception
         //else throw the exception out
         $exceptionHandled = false;
-        foreach ($this->handlerChain as $handler) {
+        foreach ($handlerChain as $handler) {
             $response = (yield $handler->handle($e));
             if ($response) {
                 $resp = (yield getContext('response'));
@@ -54,17 +51,19 @@ class ExceptionHandlerChain
             }
         }
         
-        if (is_a($response, BaseResponse::class)) {
+        if ($response instanceof BaseResponse) {
             $swooleResponse = (yield getContext('swoole_response'));
+            $response->exception = $e->getMessage();
+            /** @var $response ResponseTrait */
             yield $response->sendBy($swooleResponse);
             return;
         }
 
         if (false === $exceptionHandled) {
-            //@TODO 输出到console
+            echo_exception($e);
             return;
-            // throw $e;
         }
+
         yield null;
     }
 
@@ -72,7 +71,7 @@ class ExceptionHandlerChain
     {
         $hash = spl_object_hash($handler);
         if (isset($this->handlerMap[$hash])) {
-            return false;
+            return;
         }
 
         $this->handlerMap[$hash] = true;
@@ -82,7 +81,7 @@ class ExceptionHandlerChain
     public function addHandlerByName($handlerName)
     {
         if (isset($this->handlerMap[$handlerName])) {
-            return false;
+            return;
         }
 
         $this->handlerMap[$handlerName] = true;
@@ -91,13 +90,8 @@ class ExceptionHandlerChain
 
     public function addHandlersByName(array $handlers)
     {
-        if (!$handlers) {
-            return false;
-        }
-
         foreach ($handlers as $handlerName) {
             $this->addHandlerByName($handlerName);
         }
     }
-
 }

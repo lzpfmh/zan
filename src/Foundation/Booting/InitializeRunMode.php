@@ -1,10 +1,4 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: winglechen
- * Date: 16/3/16
- * Time: 21:40
- */
 
 namespace Zan\Framework\Foundation\Booting;
 
@@ -18,5 +12,7 @@ class InitializeRunMode implements Bootable
     public function bootstrap(Application $app)
     {
         RunMode::detect();
+        $mode = RunMode::get();
+        sys_echo("Running in $mode mode");
     }
 }

@@ -1,33 +1,25 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Network\Connection;
 
-use Zan\Framework\Contract\Network\Connection;
+
 use Zan\Framework\Contract\Network\ConnectionFactory;
 use Zan\Framework\Contract\Network\ConnectionPool;
+use Zan\Framework\Contract\Network\Connection;
 use Zan\Framework\Foundation\Core\Event;
 use Zan\Framework\Utilities\Types\ObjectArray;
+use Zan\Framework\Utilities\Types\Time;
 
 class Pool implements ConnectionPool
 {
-
+    /**
+     * @var ObjectArray
+     */
     private $freeConnection = null;
 
+    /**
+     * @var ObjectArray
+     */
     private $activeConnection = null;
 
     private $poolConfig = null;
@@ -35,6 +27,8 @@ class Pool implements ConnectionPool
     private $factory = null;
 
     private $type = null;
+
+    public $waitNum = 0;
 
     public function __construct(ConnectionFactory $connectionFactory, array $config, $type)
     {
@@ -46,77 +40,144 @@ class Pool implements ConnectionPool
 
     public function init()
     {
-        //todo 读取配置文件
         $initConnection = $this->poolConfig['pool']['init-connection'];
+        $min = isset($this->poolConfig['pool']['minimum-connection-count']) ?
+            $this->poolConfig['pool']['minimum-connection-count'] : 2;
+        if ($initConnection < $min) {
+            $initConnection = $min;
+        }
         $this->freeConnection = new ObjectArray();
         $this->activeConnection = new ObjectArray();
         for ($i = 0; $i < $initConnection; $i++) {
-            //todo 创建链接,存入数组
             $this->createConnect();
         }
-
     }
 
-    private function createConnect()
+    public function createConnect($previousConnectionHash = '', $prevConn = null)
     {
-        //todo 创建链接,存入数组
+        $max = isset($this->poolConfig['pool']['maximum-connection-count']) ?
+            $this->poolConfig['pool']['maximum-connection-count'] : 30;
+        $sumCount = $this->activeConnection->length() + $this->freeConnection->length();
+        if($sumCount >= $max) {
+            return null;
+        }
         $connection = $this->factory->create();
+        if (null === $connection) {
+            return;
+        }
+
+        if  ('' !== $previousConnectionHash) {
+            $previousKey = ReconnectionPloy::getInstance()->getReconnectTime($previousConnectionHash);
+            if ($this->type == 'Mysqli') {
+
+                $errno = 0;
+                if (null !== $prevConn) {
+                    $sock = $prevConn->getSocket();
+                    $errno = $sock->connect_errno;
+                }
+
+                if ($errno) {
+                    ReconnectionPloy::getInstance()->setReconnectTime(spl_object_hash($connection),$previousKey);
+                    $this->freeConnection->remove($prevConn);
+                    $this->activeConnection->remove($prevConn);
+                }
+
+                $connection->setPool($this);
+            } else {
+                ReconnectionPloy::getInstance()->setReconnectTime(spl_object_hash($connection), $previousKey);
+            }
+            ReconnectionPloy::getInstance()->connectSuccess($previousConnectionHash);
+        }
+
         if ($connection->getIsAsync()) {
             $this->activeConnection->push($connection);
         } else {
             $this->freeConnection->push($connection);
         }
-
+        if ('' == $previousConnectionHash) {
+            if ($this->type !== 'Mysqli') {
+                $connection->heartbeat();
+            }
+        }
         $connection->setPool($this);
-        $connection->heartbeat();
         $connection->setEngine($this->type);
     }
 
+    /**
+     * @return ObjectArray
+     */
     public function getFreeConnection()
     {
         return $this->freeConnection;
     }
 
+    /**
+     * @return ObjectArray
+     */
     public function getActiveConnection()
     {
         return $this->activeConnection;
     }
 
-
     public function reload(array $config)
     {
-
     }
 
-    public function get()
+    public function get($connection = null)
     {
-
         if ($this->freeConnection->isEmpty()) {
-            return null;
+            $this->createConnect();
         }
-        $conn = $this->freeConnection->pop();
-        $this->activeConnection->push($conn);
 
-//        deferRelease($conn);
-        return $conn;
+        if (null == $connection) {
+            $connection = $this->freeConnection->pop();
+            if (null != $connection) {
+                $this->activeConnection->push($connection);
+            }
+
+        } else {
+            $this->freeConnection->remove($connection);
+            $this->activeConnection->push($connection);
+        }
+        if (null === $connection) {
+            yield null;
+            return;
+        }
+        $connection->setUnReleased();
+        $connection->lastUsedTime = Time::current(true);
+        yield $connection;
     }
 
     public function recycle(Connection $conn)
     {
+        $evtName = null;
+
         $this->freeConnection->push($conn);
         $this->activeConnection->remove($conn);
-        if (count($this->freeConnection) == 1) {
-            //唤醒等待事件
-            $evtName = $this->poolConfig['pool']['pool_name'] . '_free';
-            Event::fire($evtName, [], false);
-        }
+
+        $evtName = $this->poolConfig['pool']['pool_name'] . '_free';
+        Event::fire($evtName, [], false);
     }
 
     public function remove(Connection $conn)
     {
         $this->freeConnection->remove($conn);
         $this->activeConnection->remove($conn);
-        //补充删除被删除连接
-        $this->createConnect();
+        $connHashCode = spl_object_hash($conn);
+        if (null === ReconnectionPloy::getInstance()->getReconnectTime($connHashCode)) {
+            ReconnectionPloy::getInstance()->setReconnectTime($connHashCode, 0);
+            $this->createConnect($connHashCode, $conn);
+            return;
+        }
+
+        ReconnectionPloy::getInstance()->reconnect($conn, $this);
+    }
+
+    /**
+     * @return array|null
+     */
+    public function getPoolConfig()
+    {
+        return $this->poolConfig;
     }
 }

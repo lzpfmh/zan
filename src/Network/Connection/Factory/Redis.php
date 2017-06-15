@@ -1,25 +1,12 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 
 namespace Zan\Framework\Network\Connection\Factory;
 
 use Zan\Framework\Contract\Network\ConnectionFactory;
+use swoole_redis as SwooleRedis;
 use \Zan\Framework\Network\Connection\Driver\Redis as Client;
-use Zan\Framework\Store\NoSQL\Redis\RedisClient;
+use Zan\Framework\Network\Server\Timer\Timer;
 
 class Redis implements ConnectionFactory
 {
@@ -27,7 +14,6 @@ class Redis implements ConnectionFactory
      * @var array
      */
     private $config;
-    private $conn;
 
     public function __construct(array $config)
     {
@@ -36,11 +22,40 @@ class Redis implements ConnectionFactory
     
     public function create()
     {
-        $this->conn = new RedisClient($this->config['host'], $this->config['port']);
-        $redis = new Client();
-        $redis->setSocket($this->conn);
-        $redis->setConfig($this->config);
-        return $redis;
+        $socket = new SwooleRedis();
+        /** @noinspection PhpUndefinedFieldInspection */
+        $socket->isClosed = null;
+        $connection = new Client();
+        $connection->setSocket($socket);
+        $connection->setConfig($this->config);
+        $connection->init();
+
+        $isUnixSock = isset($this->config["path"]);
+        if ($isUnixSock) {
+            $result = $socket->connect($this->config['path'], null, [$connection, 'onConnect']);
+            $dst = $this->config['path'];
+        } else {
+            $result = $socket->connect($this->config['host'], $this->config['port'], [$connection, 'onConnect']);
+            $dst = $this->config['host'].":".$this->config['port'];
+        }
+        if (false === $result) {
+            sys_error("Redis connect $dst failed");
+            return null;
+        }
+
+        Timer::after($this->config['connect_timeout'], $this->getConnectTimeoutCallback($connection), $connection->getConnectTimeoutJobId());
+
+        return $connection;
+    }
+
+    public function getConnectTimeoutCallback(Client $connection)
+    {
+        return function() use ($connection) {
+            $connection->close();
+            /** @noinspection PhpUndefinedFieldInspection */
+            $connection->getSocket()->isClosed = true;
+            $connection->onConnectTimeout();
+        };
     }
 
     public function close()

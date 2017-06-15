@@ -1,21 +1,11 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 namespace Zan\Framework\Network\Tcp;
 
+use Zan\Framework\Network\Server\Monitor\Worker;
+use Zan\Framework\Network\Server\WorkerStart\InitializeErrorHandler;
+use Zan\Framework\Network\Server\WorkerStart\InitializeServerDiscovery;
+use Zan\Framework\Network\Server\ServerStart\InitLogConfig;
 use Zan\Framework\Network\Server\WorkerStart\InitializeConnectionPool;
 use swoole_server as SwooleServer;
 use Kdt\Iron\Nova\Nova;
@@ -24,30 +14,27 @@ use Zan\Framework\Foundation\Core\Path;
 use Zan\Framework\Foundation\Core\Config;
 use Zan\Framework\Foundation\Exception\ZanException;
 use Zan\Framework\Network\Server\ServerBase;
+use Zan\Framework\Network\Tcp\ServerStart\InitializeMiddleware;
 use Zan\Framework\Network\Tcp\ServerStart\InitializeSqlMap;
+use Zan\Framework\Network\Server\WorkerStart\InitializeWorkerMonitor;
 
-class Server extends ServerBase {
+class Server extends ServerBase
+{
 
     protected $serverStartItems = [
-        InitializeSqlMap::class
+        InitializeSqlMap::class,
+        InitLogConfig::class,
+        InitializeMiddleware::class
     ];
 
     protected $workerStartItems = [
+        InitializeErrorHandler::class,
+        InitializeWorkerMonitor::class,
         InitializeConnectionPool::class,
+        InitializeServerDiscovery::class,
     ];
-    
-    /**
-     * @var SwooleServer
-     */
-    public $swooleServer;
 
-    public function __construct(SwooleServer $swooleServer, array $config)
-    {
-        $this->swooleServer = $swooleServer;
-        $this->swooleServer->set($config);
-    }
-
-    public function start()
+    public function setSwooleEvent()
     {
         $this->swooleServer->on('start', [$this, 'onStart']);
         $this->swooleServer->on('shutdown', [$this, 'onShutdown']);
@@ -58,86 +45,137 @@ class Server extends ServerBase {
 
         $this->swooleServer->on('connect', [$this, 'onConnect']);
         $this->swooleServer->on('receive', [$this, 'onReceive']);
-
         $this->swooleServer->on('close', [$this, 'onClose']);
-
-        $this->init();
-        $this->registerServices();
-        
-        $this->bootServerStartItem();
-        
-        $this->swooleServer->start();
     }
 
-    private function init()
+    protected function init()
     {
         $config = Config::get('nova.novaApi', null);
         if(null === $config){
             return true;
         }
 
-        if(!isset($config['path'])){
-            throw new ZanException('nova server path not defined');
-        }
-        $config['path'] = Path::getRootPath() . $config['path'];
-        Nova::init($config);
-    }
-
-    private function registerServices()
-    {
-        $config = Config::get('nova.platform');
-        $config['services'] = Nova::getAvailableService();
-
-        $appName = Application::getInstance()->getName();
-        $config['module'] = $appName;
-
-        $this->swooleServer->nova_config($config);
+        Nova::init($this->parserNovaConfig($config));
     }
 
     public function onConnect()
     {
-        echo "connecting ......\n";
+        sys_echo("connecting ......");
     }
 
     public function onClose()
     {
-        echo "closing .....\n";
+        sys_echo("closing .....");
     }
 
     public function onStart($swooleServer)
     {
-        echo "server start .....\n";
+        $this->writePid($swooleServer->master_pid);
+        sys_echo("server starting ..... [$swooleServer->host:$swooleServer->port]");
     }
 
     public function onShutdown($swooleServer)
     {
-        echo "server shutdown .....\n";
+        $this->removePidFile();
+        sys_echo("server shutdown .....");
     }
 
     public function onWorkerStart($swooleServer, $workerId)
     {
+        $_SERVER["WORKER_ID"] = $workerId;
         $this->bootWorkerStartItem($workerId);
-        
-        echo "worker starting .....\n";
+        sys_echo("worker *$workerId starting .....");
     }
 
     public function onWorkerStop($swooleServer, $workerId)
     {
-        echo "worker stoping ....\n";
+        sys_echo("worker *$workerId stopping ....");
+
+        $num = Worker::getInstance()->reactionNum ?: 0;
+        sys_echo("worker *$workerId still has $num requests in progress...");
     }
 
-    public function onWorkerError($swooleServer, $workerId, $workerPid, $exitCode)
+    public function onWorkerError($swooleServer, $workerId, $workerPid, $exitCode, $sigNo)
     {
-        echo "worker error happening ....\n";
+        sys_echo("worker error happening [workerId=$workerId, workerPid=$workerPid, exitCode=$exitCode, signalNo=$sigNo]...");
+
+        $num = Worker::getInstance()->reactionNum ?: 0;
+        sys_echo("worker *$workerId still has $num requests in progress...");
     }
 
     public function onPacket(SwooleServer $swooleServer, $data, array $clientInfo)
     {
-        echo "receive packet data\n\n\n\n";
+        sys_echo("receive packet data..");
     }
 
     public function onReceive(SwooleServer $swooleServer, $fd, $fromId, $data)
     {
         (new RequestHandler())->handle($swooleServer, $fd, $fromId, $data);
+    }
+
+    /**
+     * 配置向下兼容
+     *
+     * novaApi => [
+     *      'path'  => 'vendor/nova-service/xxx/gen-php',
+     *      'namespace' => 'Com\\Youzan\\Biz\\',
+     *      'appName' => 'demo', // optional
+     *      'domain' => 'com.youzan.service', // optional
+     * ]
+     * novaApi => [
+     *      [
+     *          'appName' => 'app-foo',
+     *          'path'  => 'vendor/nova-service/xxx/gen-php',
+     *          'namespace' => 'Com\\Youzan\\Biz\\',
+     *          'domain' => 'com.youzan.service', // optional
+     *      ],
+     *      [
+     *          'appName' => 'app-bar',
+     *          'path'  => 'vendor/nova-service/xxx/gen-php',
+     *          'namespace' => 'Com\\Youzan\\Biz\\',
+     *          'domain' => 'com.youzan.service', // optional
+     *      ],
+     * ]
+     * @param $config
+     * @return array
+     * @throws ZanException
+     */
+    private function parserNovaConfig($config)
+    {
+        if (!is_array($config)) {
+            throw new ZanException("invalid nova config");
+        }
+        if (isset($config["path"])) {
+            $appName = Application::getInstance()->getName();
+            if (!isset($config["appName"])) {
+                $config["appName"] = $appName;
+            }
+            $config = [ $config ];
+        }
+
+        foreach ($config as &$item) {
+            if (!isset($item["appName"])) {
+                $item["appName"] = Application::getInstance()->getName();
+            }
+            if(!isset($item["path"])){
+                throw new ZanException("nova server path not defined");
+            }
+
+            $item["path"] = Path::getRootPath() . $item["path"];
+
+            if(!isset($item["namespace"])){
+                throw new ZanException("nova namespace path not defined");
+            }
+
+            if(!isset($item["domain"])) {
+                $item["domain"] = "com.youzan.service";
+            }
+
+            if(!isset($item["protocol"])) {
+                $item["protocol"] = "nova";
+            }
+        }
+        unset($item);
+        return $config;
     }
 }

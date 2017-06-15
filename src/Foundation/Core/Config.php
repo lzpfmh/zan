@@ -1,41 +1,64 @@
 <?php
 namespace Zan\Framework\Foundation\Core;
 
-
 use Zan\Framework\Utilities\Types\Arr;
 
 class Config
 {
     private static $configMap = [];
 
-    public static function init()
+    private static function load($path, $runMode)
     {
-        $runMode = RunMode::get();
-        $path = Path::getConfigPath();
+        $shareConfigMap = $runModeConfig = [];
+
         $sharePath = $path . 'share/';
-        $shareConfigMap = ConfigLoader::getInstance()->load($sharePath);
+        if (is_dir($sharePath)) {
+            $shareConfigMap = ConfigLoader::getInstance()->load($sharePath);
+        }
 
-        $runModeConfigPath = Path::getConfigPath() . $runMode;
-        $runModeConfig = ConfigLoader::getInstance()->load($runModeConfigPath);
+        $runModeConfigPath = $path . $runMode;
+        if (is_dir($runModeConfigPath)) {
+            $runModeConfig = ConfigLoader::getInstance()->load($runModeConfigPath);
+        }
 
-        self::$configMap = Arr::merge(self::$configMap, $shareConfigMap, $runModeConfig);
+        return Arr::merge($shareConfigMap, $runModeConfig);
+    }
 
-        //add private dir
-        if ('test' == $runMode || 'dev' == $runMode) {
-            $privatePath = Path::getConfigPath() . '.private/';
+    private static function loadPrivate($path)
+    {
+        if (!RunMode::isOnline()) {
+            $privatePath = $path . '.private/';
             if (is_dir($privatePath)) {
-                $privateConfig = ConfigLoader::getInstance()->load($privatePath);
-                self::$configMap = Arr::merge(self::$configMap, $privateConfig);
+                return ConfigLoader::getInstance()->load($privatePath);
             }
         }
+        return [];
+    }
+
+    public static function init()
+    {
+        $configMaps = [];
+
+        $paths = [
+            Path::getZanPath(),
+            Path::getConfigPath(),
+            Path::getModuleConfigPath(),
+        ];
+
+        $runMode = RunMode::get();
+        foreach ($paths as $path) {
+            $configMaps[] = self::load($path, $runMode);
+        }
+
+        foreach ($paths as $path) {
+            $configMaps[] = self::loadPrivate($path);
+        }
+
+        self::$configMap = Arr::merge(self::$configMap, ...$configMaps);
     }
 
     public static function get($key, $default = null)
     {
-        if (!$key) {
-            return $default;
-        }
-        $preKey = $key;
         $routes = explode('.', $key);
         if (empty($routes)) {
             return $default;
@@ -50,10 +73,11 @@ class Config
             }
             $result = &$result[$route];
         }
-        if (!$hasConfig) {
+        if ($hasConfig) {
+            return $result;
+        } else {
             return $default;
         }
-        return $result;
     }
 
     public static function set($key, $value)

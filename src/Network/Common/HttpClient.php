@@ -1,35 +1,30 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
+
 namespace Zan\Framework\Network\Common;
 
 use Zan\Framework\Foundation\Contract\Async;
+use Zan\Framework\Foundation\Core\Config;
+use Zan\Framework\Foundation\Exception\System\InvalidArgumentException;
+use Zan\Framework\Network\Common\Exception\DnsLookupTimeoutException;
+use Zan\Framework\Network\Common\Exception\HostNotFoundException;
+use Zan\Framework\Network\Server\Timer\Timer;
+use Zan\Framework\Network\Common\Exception\HttpClientTimeoutException;
 
 class HttpClient implements Async
 {
     const GET = 'GET';
     const POST = 'POST';
 
-    /** @var  swoole_http_client */
+    /** @var  \swoole_http_client */
     private $client;
 
     private $host;
     private $port;
     private $ssl;
 
+    /**
+     * @var int [millisecond]
+     */
     private $timeout;
 
     private $uri;
@@ -53,7 +48,7 @@ class HttpClient implements Async
         return new static($host, $port, $ssl);
     }
 
-    public function get($uri = '', $params = [], $timeout = 3)
+    public function get($uri = '', $params = [], $timeout = 3000)
     {
         $this->setMethod(self::GET);
         $this->setTimeout($timeout);
@@ -63,7 +58,7 @@ class HttpClient implements Async
         yield $this->build();
     }
 
-    public function post($uri = '', $params = [], $timeout = 3)
+    public function post($uri = '', $params = [], $timeout = 3000)
     {
         $this->setMethod(self::POST);
         $this->setTimeout($timeout);
@@ -73,7 +68,21 @@ class HttpClient implements Async
         yield $this->build();
     }
 
-    public function execute(callable $callback)
+    public function postJson($uri = '', $params = [], $timeout = 3000)
+    {
+        $this->setMethod(self::POST);
+        $this->setTimeout($timeout);
+        $this->setUri($uri);
+        $this->setParams(json_encode($params));
+
+        $this->setHeader([
+            'Content-Type' => 'application/json'
+        ]);
+
+        yield $this->build();
+    }
+
+    public function execute(callable $callback, $task)
     {
         $this->setCallback($this->getCallback($callback))->handle();
     }
@@ -95,6 +104,11 @@ class HttpClient implements Async
 
     public function setTimeout($timeout)
     {
+        if (null !== $timeout) {
+            if ($timeout < 0 || $timeout > 60000) {
+                throw new InvalidArgumentException("Timeout must be between 0-60 seconds, $timeout is given");
+            }
+        }
         $this->timeout = $timeout;
         return $this;
     }
@@ -119,20 +133,17 @@ class HttpClient implements Async
 
     private function build()
     {
-        if ($this->method != 'POST' and $this->method != 'PUT') {
+        if ($this->method === 'GET') {
             if (!empty($this->params)) {
                 $this->uri = $this->uri . '?' . http_build_query($this->params);
             }
-        } else {
-            $body = json_encode($this->params);
-            $contentType = 'application/json';
-            $this->setHeader([
-                'Content-Type' => $contentType
-            ]);
+        } else if ($this->method === 'POST') {
+            $body = $this->params;
+
             $this->setBody($body);
         }
 
-        return $this;
+        yield $this;
     }
 
     public function setCallback(Callable $callback)
@@ -143,16 +154,31 @@ class HttpClient implements Async
 
     public function handle()
     {
-        swoole_async_dns_lookup($this->host, function($host, $ip) {
-            $this->request($ip);
-        });
+        $host = $this->host;
+        $port = $this->port;
+
+        $dnsCallbackFn = function($host, $ip) use ($port) {
+            if ($ip) {
+                $this->request($ip, $port);
+            } else {
+                $this->whenHostNotFound($host);
+            }
+        };
+
+        if ($this->timeout === null) {
+            DnsClient::lookupWithoutTimeout($host, $dnsCallbackFn);
+        } else {
+            DnsClient::lookup($host, $dnsCallbackFn, [$this, "dnsLookupTimeout"], $this->timeout);
+        }
     }
 
-
-    public function request($ip)
+    public function request($ip, $port)
     {
-        $this->client = new \swoole_http_client($ip, $this->port, $this->ssl);
+        $this->client = new \swoole_http_client($ip, $port, $this->ssl);
         $this->buildHeader();
+        if (null !== $this->timeout) {
+            Timer::after($this->timeout, [$this, 'checkTimeout'], spl_object_hash($this));
+        }
 
         if('GET' === $this->method){
             $this->client->get($this->uri, [$this,'onReceive']);
@@ -163,21 +189,91 @@ class HttpClient implements Async
 
     private function buildHeader()
     {
-        $this->header['Host'] = $this->host;
+        if ($this->port !== 80) {
+            $this->header['Host'] = $this->host . ':' . $this->port;
+        } else {
+            $this->header['Host'] = $this->host;
+        }
+
+        if ($this->ssl) {
+            $this->header['Scheme'] = 'https';
+        }
+
         $this->client->setHeaders($this->header);
     }
 
     public function onReceive($cli)
     {
-        call_user_func($this->callback, $cli->body);
+        Timer::clearAfterJob(spl_object_hash($this));
+        $response = new Response($cli->statusCode, $cli->headers, $cli->body);
+        call_user_func($this->callback, $response);
+        $this->client->close();
+    }
+
+    public function whenHostNotFound($host)
+    {
+        $ex = new HostNotFoundException("", 408, null, [ "host" => $host ]);
+        call_user_func($this->callback, null, $ex);
     }
 
     private function getCallback(callable $callback)
     {
-        return function($response) use ($callback) {
-            $jsonData = json_decode($response, true);
-            $response = $jsonData ? $jsonData : $response;
-            call_user_func($callback, $response);
+        return function($response, $exception = null) use ($callback) {
+            call_user_func($callback, $response, $exception);
         };
+    }
+
+    public function checkTimeout()
+    {
+        $this->client->close();
+
+        $message = sprintf(
+            '[http request timeout] host:%s port:%s uri:%s method:%s ',
+            $this->host,
+            $this->port,
+            $this->uri,
+            $this->method
+        );
+        $metaData = [
+            'host' => $this->host,
+            'port' => $this->port,
+            'ssl' => $this->ssl,
+            'uri' => $this->uri,
+            'method' => $this->method,
+            'params' => $this->params,
+            'body' => $this->body,
+            'header' => $this->header,
+            'timeout' => $this->timeout,
+        ];
+
+        $exception = new HttpClientTimeoutException($message, 408, null, $metaData);
+
+        call_user_func($this->callback, null, $exception);
+    }
+
+    public function dnsLookupTimeout()
+    {
+        $message = sprintf(
+            '[http dns lookup timeout] host:%s port:%s uri:%s method:%s ',
+            $this->host,
+            $this->port,
+            $this->uri,
+            $this->method
+        );
+        $metaData = [
+            'host' => $this->host,
+            'port' => $this->port,
+            'ssl' => $this->ssl,
+            'uri' => $this->uri,
+            'method' => $this->method,
+            'params' => $this->params,
+            'body' => $this->body,
+            'header' => $this->header,
+            'timeout' => $this->timeout,
+        ];
+
+        $exception = new DnsLookupTimeoutException($message, 408, null, $metaData);
+
+        call_user_func($this->callback, null, $exception);
     }
 }

@@ -1,10 +1,4 @@
 <?php
-/**
- * Created by PhpStorm.
- * User: heize
- * Date: 16/5/31
- * Time: 上午11:28
- */
 
 namespace Zan\Framework\Network\Http\ServerStart;
 
@@ -15,10 +9,7 @@ class InitializeUrlConfig
 {
     public function bootstrap($server)
     {
-        $config = Config::get('url');
-        if (!$config) {
-            return;
-        }
+        $config = Config::get('url', []);
         URL::setConfig($config);
     }
 }

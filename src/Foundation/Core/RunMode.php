@@ -1,16 +1,9 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: winglechen
- * Date: 16/3/2
- * Time: 17:44
- */
 
 namespace Zan\Framework\Foundation\Core;
 
-use Zan\Framework\Foundation\Exception\System\InvalidArgumentException;
-
-class RunMode {
+class RunMode
+{
     private static $modeMap  = [
         'dev'       => 1,
         'test'      => 2,
@@ -18,9 +11,13 @@ class RunMode {
         'readonly'  => 4,
         'online'    => 5,
         'unittest'  => 6,
+        'qatest'    => 7,
+        'pubtest'   => 8,
+        'ci'        => 9,
+        'perf'      => 10,
+        'daily'     => 11,
     ];
     private static $runMode = null;
-    private static $cliInput = null;
 
     public static function get()
     {
@@ -29,43 +26,32 @@ class RunMode {
 
     public static function set($runMode)
     {
-        if (!isset(self::$modeMap[$runMode])) {
-            throw new InvalidArgumentException('invalid runMode in RunMode::set');
-        }
         self::$runMode = $runMode;
-    }
-
-    public static function setCliInput($mode)
-    {
-        if (!$mode) {
-            return false;
-        }
-
-        if (!isset(self::$modeMap[$mode])) {
-            throw new InvalidArgumentException('invalid runMode from cli');
-        }
-        self::$cliInput = $mode;
     }
 
     public static function detect()
     {
-        if (null !== self::$cliInput) {
-            self::$runMode = self::$cliInput;
-            return true;
+        if (null !== self::$runMode) {
+            return;
         }
 
-        $envInput = getenv('ZAN_RUN_MODE');
-        if (isset(self::$modeMap[$envInput])) {
+        $envInput = getenv('ZANPHP_RUN_MODE');
+        if ($envInput !== false) {
             self::$runMode = $envInput;
-            return true;
+            return;
         }
 
-        $iniInput = get_cfg_var('zan.RUN_MODE');
-        if (isset(self::$modeMap[$iniInput])) {
+        $iniInput = get_cfg_var('zanphp.RUN_MODE');
+        if ($iniInput !== false) {
             self::$runMode = $iniInput;
-            return true;
+            return;
         }
 
         self::$runMode = 'online';
+    }
+
+    public static function isOnline()
+    {
+        return in_array(self::$runMode, ["pre", "online"], true);
     }
 }

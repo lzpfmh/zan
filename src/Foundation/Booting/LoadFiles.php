@@ -1,10 +1,4 @@
 <?php
-/**
- * Created by IntelliJ IDEA.
- * User: Demon
- * Date: 16/5/19
- * Time: 下午2:00
- */
 
 namespace Zan\Framework\Foundation\Booting;
 
@@ -19,13 +13,15 @@ class LoadFiles implements Bootable
     {
         $basePath = $app->getBasePath();
         $paths = [
-            $basePath . '/vendor/zanphp',
+            $basePath . '/vendor/zanphp/zan/src',
             $basePath . '/src',
         ];
 
         $loader = Loader::getInstance();
         foreach ($paths as $path) {
-            $loader->load($path);
+            if (is_dir($path)) {
+                $loader->load($path);
+            }
         }
     }
 }

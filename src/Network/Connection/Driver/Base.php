@@ -1,43 +1,36 @@
 <?php
-/*
- *    Copyright 2012-2016 Youzan, Inc.
- *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
- *
- *        http://www.apache.org/licenses/LICENSE-2.0
- *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
- */
 
 namespace Zan\Framework\Network\Connection\Driver;
 
 
 use Zan\Framework\Contract\Network\Connection;
+use Zan\Framework\Contract\Network\ConnectionFactory;
 use Zan\Framework\Contract\Network\ConnectionPool;
-use Zan\Framework\Network\Connection\Pool;
 
 
 abstract class Base implements Connection
 {
     protected $config = null;
+    /** @var ConnectionPool  */
     protected $pool = null;
+    /** @var ConnectionFactory */
     protected $socket = null;
     protected $engine = null;
     protected $isAsync = false;
+    protected $isClose = false;
+    protected $isReleased = false;
+    public $lastUsedTime=0;
 
     abstract protected function closeSocket();
 
-    public function setPool(ConnectionPool $pool)
+    public function setPool($pool)
     {
         $this->pool = $pool;
     }
 
+    /**
+     * @return ConnectionPool
+     */
     public function getPool()
     {
         return $this->pool;
@@ -53,6 +46,9 @@ abstract class Base implements Connection
         return $this->config;
     }
 
+    /**
+     * @return ConnectionFactory
+     */
     public function getSocket()
     {
         return $this->socket;
@@ -62,23 +58,42 @@ abstract class Base implements Connection
     {
         $this->socket = $socket;
     }
-    
+
+    public function unsetSocket()
+    {
+        unset($this->socket);
+        $this->socket = null;
+    }
+
+    public function setUnReleased()
+    {
+        $this->isReleased = false;
+    }
+
     public function release()
     {
-        if(null !== $this->pool){
+        if (true === $this->isReleased) {
+            return;
+        }
+        if (null !== $this->pool) {
+            $this->isReleased = true;
             return $this->pool->recycle($this);
         }
-        
-        return $this->closeSocket();
+
+        $this->closeSocket();
     }
     
     public function close()
     {
-        if(null !== $this->pool){  
+        if (true === $this->isClose) {
+            return;
+        }
+        $this->isClose = true;
+
+        $this->closeSocket();
+        if (null !== $this->pool) {
             $this->pool->remove($this);
         }
-        
-        $this->closeSocket();
     }
 
     public function heartbeat()
@@ -101,5 +116,27 @@ abstract class Base implements Connection
 
     public function getIsAsync() {
         return $this->isAsync;
+    }
+
+    public function getConnectTimeoutJobId()
+    {
+        return spl_object_hash($this) . '_connect_timeout';
+    }
+
+    public function onConnectTimeout()
+    {
+        $client = lcfirst(substr(static::class, strrpos(static::class, "\\") + 1));
+        sys_error("$client client connect timeout " . $this->getConnString());
+    }
+
+    public function getConnString()
+    {
+        if (isset($this->config["path"])) {
+            return "[path={$this->config["path"]}]";
+        } else if (isset($this->config["host"]) && isset($this->config["port"])){
+            return "[host={$this->config["host"]}, port={$this->config["port"]}]";
+        } else {
+            return "";
+        }
     }
 }
